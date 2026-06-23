@@ -27,6 +27,10 @@ if 'db_apprenants' not in st.session_state:
 if 'user_connecte' not in st.session_state:
     st.session_state.user_connecte = None
 
+# Variables temporaires pour le formulaire de modification
+if 'id_a_modifier' not in st.session_state:
+    st.session_state.id_a_modifier = None
+
 # =========================================================
 # MOTEUR INTERPRÉTATIF GLOBAL INTELLIGENT
 # =========================================================
@@ -38,14 +42,14 @@ def generer_synthese_axe(axe_colonne, df):
     
     if axe_colonne == "Comprehension_Consignes":
         mal_compris = counts.get("Non, pas vraiment", 0) + counts.get("Oui, parfois", 0)
-        pct = (mal_compris / total) * 100
+        pct = (mal_compris / total) * 100 if total > 0 else 0
         critique = f"Il apparait que {pct:.1f}% des apprenants eprouvent des difficultes regulieres ou permanentes a assimiler les consignes des exercices pratiques."
         interpretation = "Cela traduit un decalage entre la formulation technico-pedagogique des consignes et le niveau d'autonomie cognitive reelle des eleves."
         solution = "Recommandation : Mettre en oeuvre une reformulation systematique a l'oral par un apprenant temoin et concevoir des fiches guides simplifiees pas-a-pas."
         
     elif axe_colonne == "Outils_Dispo":
         sans_outils = counts.get("Non", 0)
-        pct = (sans_outils / total) * 100
+        pct = (sans_outils / total) * 100 if total > 0 else 0
         if pct > 0:
             critique = f"Le diagnostic met en relief un deficit logistique critique : {pct:.1f}% des repondants ne possedent pas le materiel requis (atlas, manuels, cartes)."
             interpretation = "Le manque de supports individuels entrave directement l'efficacite des activites et accentue les inegalites d'apprentissage en classe."
@@ -57,14 +61,14 @@ def generer_synthese_axe(axe_colonne, df):
 
     elif axe_colonne == "Impact_Comprehension":
         positif = counts.get("Oui, beaucoup", 0) + counts.get("Oui, un peu", 0)
-        pct = (positif / total) * 100
+        pct = (positif / total) * 100 if total > 0 else 0
         critique = f"Pour {pct:.1f}% des eleves, l'apport des exercices pratiques sur l'assimilation des cours theoriques reste indeniable."
         interpretation = "L'activite concrete ancre la memoire a long terme et donne du sens aux lecons theoriques d'Histoire-Geographie."
         solution = "Recommandation : Systematiser ces ateliers tout en ajustant le timing pour ne pas deborder sur les horaires de cours."
 
     elif axe_colonne == "Utilite_Citoyenne":
         flou = counts.get("Je ne sais pas", 0) + counts.get("Non", 0)
-        pct = (flou / total) * 100
+        pct = (flou / total) * 100 if total > 0 else 0
         critique = f"Une fracture civique est identifiee : {pct:.1f}% des apprenants ne percoivent pas le lien direct entre ces exercices pratiques et leur role de citoyen."
         interpretation = "L'Education a la Citoyennete (ECM) est encore percue de maniere trop abstraite, deconnectee des realities de terrain des apprenants."
         solution = "Recommandation : Contextualiser les exercices en les adossant a des enjeux locaux (etudes des budgets de leur commune, enquetes de salubrite de leur quartier)."
@@ -199,12 +203,13 @@ else:
     
     if st.sidebar.button("🚪 Déconnexion"):
         st.session_state.user_connecte = None
+        st.session_state.id_a_modifier = None
         st.rerun()
 
     page = "📝 Formulaire Élève" if user["Role"] == "Apprenant" else st.sidebar.radio("Navigation :", ["📊 Espace Stagiaire (Rapports)", "📝 Formulaire Élève"])
 
     # --------------------------------------------------
-    # 1. ESPACE ENQUÊTE (AVEC L'EN-TÊTE EXACT EN COULEUR CLAIRE)
+    # 1. ESPACE ENQUÊTE
     # --------------------------------------------------
     if page == "📝 Formulaire Élève":
         st.markdown(
@@ -268,18 +273,89 @@ else:
                     st.success("Données ajoutées avec succès.")
 
     # --------------------------------------------------
-    # 2. ESPACE STAGIAIRE : VISUALISATION CONFORME
+    # 2. ESPACE STAGIAIRE : VISUALISATION & ACTIONS (MODIFIER / SUPPRIMER)
     # --------------------------------------------------
     else:
         st.title("📊 Espace Stagiaire — Consolidation Analytique")
         df_app = st.session_state.db_apprenants
 
         if df_app.empty:
-            st.warning("Base de données vide.")
+            st.warning("La base de données des apprenants est actuellement vide.")
         else:
+            # =========================================================
+            # SECTION : GESTION DES APPRENANTS (MODIFIER / SUPPRIMER)
+            # =========================================================
+            st.write("### ⚙️ Gestion et Modération des données")
+            
+            # Sélection de l'apprenant à gérer via une liste déroulante claire
+            liste_options = [f"ID: {row['ID']} - {row['Nom']} {row['Prenom']} ({row['Classe']} - {row['Etablissement']})" for _, row in df_app.iterrows()]
+            choix_apprenant = st.selectbox("Sélectionner un apprenant à éditer ou supprimer :", liste_options)
+            
+            if choix_apprenant:
+                id_selectionne = int(choix_apprenant.split(" - ")[0].replace("ID: ", ""))
+                ligne_apprenant = df_app[df_app["ID"] == id_selectionne].iloc[0]
+
+                col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+                
+                with col_btn1:
+                    if st.button("📝 Modifier", key=f"edit_{id_selectionne}"):
+                        st.session_state.id_a_modifier = id_selectionne
+                
+                with col_btn2:
+                    if st.button("❌ Supprimer", key=f"del_{id_selectionne}"):
+                        st.session_state.db_apprenants = df_app[df_app["ID"] != id_selectionne].reset_index(drop=True)
+                        st.success(f"L'enregistrement ID {id_selectionne} a été supprimé avec succès !")
+                        st.rerun()
+
+                # --- Formulaire dynamique de modification ---
+                if st.session_state.id_a_modifier == id_selectionne:
+                    st.markdown("""<div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; border-left: 4px solid #ff9800; margin-top: 10px;">
+                        <b>Formulaire de Modification de l'Apprenant</b></div>""", unsafe_allow_html=True)
+                    
+                    with st.form("form_modification"):
+                        # Préreemplissage avec les valeurs actuelles
+                        m_nom = st.text_input("Nom :", value=str(ligne_apprenant["Nom"]))
+                        m_prenom = st.text_input("Prénom :", value=str(ligne_apprenant["Prenom"]))
+                        m_sexe = st.radio("Sexe :", ["Masculin", "Féminin"], index=["Masculin", "Féminin"].index(ligne_apprenant["Sexe"]))
+                        m_classe = st.selectbox("Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"], index=["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"].index(ligne_apprenant["Classe"]))
+                        m_etablissement = st.text_input("Établissement :", value=str(ligne_apprenant["Etablissement"]))
+                        
+                        m_consignes = st.radio("Compréhension consignes :", ["Oui, toujours", "Oui, parfois", "Non, pas vraiment"], index=["Oui, toujours", "Oui, parfois", "Non, pas vraiment"].index(ligne_apprenant["Comprehension_Consignes"]))
+                        m_outils = st.radio("Outils disponibles :", ["Oui", "Non"], index=["Oui", "Non"].index(ligne_apprenant["Outils_Dispo"]))
+                        m_impact = st.radio("Apport sur la compréhension :", ["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"], index=["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"].index(ligne_apprenant["Impact_Comprehension"]))
+                        m_citoyennete = st.radio("Utilité citoyenne :", ["Oui", "Non", "Je ne sais pas"], index=["Oui", "Non", "Je ne sais pas"].index(ligne_apprenant["Utilite_Citoyenne"]))
+                        
+                        btn_maj1, btn_maj2 = st.columns(2)
+                        with btn_maj1:
+                            if st.form_submit_button("✅ Valider les modifications"):
+                                # Application des changements dans le DataFrame global
+                                idx = st.session_state.db_apprenants[st.session_state.db_apprenants["ID"] == id_selectionne].index[0]
+                                st.session_state.db_apprenants.at[idx, "Nom"] = m_nom
+                                st.session_state.db_apprenants.at[idx, "Prenom"] = m_prenom
+                                st.session_state.db_apprenants.at[idx, "Sexe"] = m_sexe
+                                st.session_state.db_apprenants.at[idx, "Classe"] = m_classe
+                                st.session_state.db_apprenants.at[idx, "Etablissement"] = m_etablissement
+                                st.session_state.db_apprenants.at[idx, "Comprehension_Consignes"] = m_consignes
+                                st.session_state.db_apprenants.at[idx, "Outils_Dispo"] = m_outils
+                                st.session_state.db_apprenants.at[idx, "Impact_Comprehension"] = m_impact
+                                st.session_state.db_apprenants.at[idx, "Utilite_Citoyenne"] = m_citoyennete
+                                
+                                st.session_state.id_a_modifier = None
+                                st.success("Informations mises à jour !")
+                                st.rerun()
+                        with btn_maj2:
+                            if st.form_submit_button("❌ Annuler"):
+                                st.session_state.id_a_modifier = None
+                                st.rerun()
+
+            st.markdown("---")
+
+            # =========================================================
+            # SECTION : TELECHARGEMENT & STATISTIQUES (INCHANGÉES)
+            # =========================================================
             st.subheader("📥 Téléchargement du Rapport")
             try:
-                pdf_output = generer_pdf_statistique(df_app)
+                pdf_output = generer_pdf_statistique(st.session_state.db_apprenants)
                 st.download_button(
                     label="📄 Télécharger le Rapport Analytique (PDF)",
                     data=bytes(pdf_output),
@@ -291,20 +367,17 @@ else:
 
             st.markdown("---")
             
-            # Affichage Web identique à la structure demandée
             axe_vue = st.selectbox("Sélectionner l'axe didactique à inspecter :", 
                                    ["Comprehension_Consignes", "Outils_Dispo", "Impact_Comprehension", "Utilite_Citoyenne"])
             
-            df_stats = df_app[axe_vue].value_counts().reset_index()
+            df_stats = st.session_state.db_apprenants[axe_vue].value_counts().reset_index()
             df_stats.columns = ["Modalité / Réponse", "Effectif (Nbr)"]
-            df_stats["Pourcentage (%)"] = (df_stats["Effectif (Nbr)"] / len(df_app)) * 100
+            df_stats["Pourcentage (%)"] = (df_stats["Effectif (Nbr)"] / len(st.session_state.db_apprenants)) * 100
             
-            # 1. Tableau d'abord
             st.write("#### 📅 Tableau de Répartition Statistique")
             st.dataframe(df_stats.style.format({'Pourcentage (%)': '{:.1f} %'}), use_container_width=True)
             
-            # 2. Analyses juste en dessous
-            synthese_web = generer_synthese_axe(axe_vue, df_app)
+            synthese_web = generer_synthese_axe(axe_vue, st.session_state.db_apprenants)
             st.markdown(f"""
             <div style="background-color: #f1f8e9; padding: 15px; border-radius: 5px; border-left: 4px solid #4caf50; margin-top: 10px; margin-bottom: 20px;">
                 <p style="margin-bottom: 6px;"><b>📝 CRITIQUE & DIAGNOSTIC AUTOMATISÉ :</b><br>{synthese_web['Critique']}</p>
@@ -313,6 +386,5 @@ else:
             </div>
             """, unsafe_allow_html=True)
             
-            # 3. Camembert tout en bas
             fig = px.pie(df_stats, names="Modalité / Réponse", values="Effectif (Nbr)", hole=0.1, width=500, height=350)
             st.plotly_chart(fig)
