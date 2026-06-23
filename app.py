@@ -12,22 +12,15 @@ st.set_page_config(page_title="Système d'Analyse Statistique Pédagogique", lay
 # ==========================================
 # INITIALISATION DES BASES DE DONNÉES (SESSION)
 # ==========================================
-if 'db_utilisateurs' not in st.session_state:
-    st.session_state.db_utilisateurs = pd.DataFrame(columns=["Nom", "Prenom", "Role"])
-
 if 'db_apprenants' not in st.session_state:
-    # Population initiale témoin pour les statistiques de groupe
+    # Population initiale témoin anonymisée (sans Nom ni Prénom)
     st.session_state.db_apprenants = pd.DataFrame([
-        {"ID": 1, "Nom": "Boulmo", "Prenom": "Jonas", "Sexe": "Masculin", "Classe": "1ère", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Souvent", "Types_Ex": "Analyse d'un texte ou d'une image", "Comprehension_Consignes": "Oui, parfois", "Outils_Dispo": "Oui", "Impact_Comprehension": "Oui, beaucoup", "Difficultes": "Le professeur ne donne pas assez d'explications", "Attentes_Prof": "Plus d'explications", "Utilite_Citoyenne": "Je ne sais pas"},
-        {"ID": 2, "Nom": "Kamga", "Prenom": "Hubert", "Sexe": "Masculin", "Classe": "1ère", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Souvent", "Types_Ex": "Analyse d'un texte ou d'une image", "Comprehension_Consignes": "Non, pas vraiment", "Outils_Dispo": "Non", "Impact_Comprehension": "Oui, un peu", "Difficultes": "Pas assez de matériel", "Attentes_Prof": "Plus de matériel", "Utilite_Citoyenne": "Oui"},
-        {"ID": 3, "Nom": "Ngo", "Prenom": "Marie", "Sexe": "Féminin", "Classe": "1ère", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Parfois", "Types_Ex": "Lecture de cartes", "Comprehension_Consignes": "Oui, parfois", "Outils_Dispo": "Oui", "Impact_Comprehension": "Oui, beaucoup", "Difficultes": "Le professeur ne donne pas assez d'explications", "Attentes_Prof": "Plus d'explications", "Utilite_Citoyenne": "Je ne sais pas"},
-        {"ID": 4, "Nom": "Mvondo", "Prenom": "Pierre", "Sexe": "Masculin", "Classe": "Tle", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Rarement", "Types_Ex": "Travail en groupe", "Comprehension_Consignes": "Non, pas vraiment", "Outils_Dispo": "Non", "Impact_Comprehension": "Pas du tout", "Difficultes": "Pas assez de matériel", "Attentes_Prof": "Plus de matériel", "Utilite_Citoyenne": "Non"}
+        {"ID": 1, "Sexe": "Masculin", "Classe": "1ère", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Souvent", "Types_Ex": "Analyse d'un texte ou d'une image", "Comprehension_Consignes": "Oui, parfois", "Outils_Dispo": "Oui", "Impact_Comprehension": "Oui, beaucoup", "Difficultes": "Le professeur ne donne pas assez d'explications", "Attentes_Prof": "Plus d'explications", "Utilite_Citoyenne": "Je ne sais pas"},
+        {"ID": 2, "Sexe": "Masculin", "Classe": "1ère", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Souvent", "Types_Ex": "Analyse d'un texte ou d'une image", "Comprehension_Consignes": "Non, pas vraiment", "Outils_Dispo": "Non", "Impact_Comprehension": "Oui, un peu", "Difficultes": "Pas assez de matériel", "Attentes_Prof": "Plus de matériel", "Utilite_Citoyenne": "Oui"},
+        {"ID": 3, "Sexe": "Féminin", "Classe": "1ère", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Parfois", "Types_Ex": "Lecture de cartes", "Comprehension_Consignes": "Oui, parfois", "Outils_Dispo": "Oui", "Impact_Comprehension": "Oui, beaucoup", "Difficultes": "Le professeur ne donne pas assez d'explications", "Attentes_Prof": "Plus d'explications", "Utilite_Citoyenne": "Je ne sais pas"},
+        {"ID": 4, "Sexe": "Masculin", "Classe": "Tle", "Etablissement": "LES PINTALKS", "Frequence_Ex": "Rarement", "Types_Ex": "Travail en groupe", "Comprehension_Consignes": "Non, pas vraiment", "Outils_Dispo": "Non", "Impact_Comprehension": "Pas du tout", "Difficultes": "Pas assez de matériel", "Attentes_Prof": "Plus de matériel", "Utilite_Citoyenne": "Non"}
     ])
 
-if 'user_connecte' not in st.session_state:
-    st.session_state.user_connecte = None
-
-# Variables temporaires pour le formulaire de modification
 if 'id_a_modifier' not in st.session_state:
     st.session_state.id_a_modifier = None
 
@@ -159,232 +152,181 @@ def generer_pdf_statistique(df):
     return pdf.output()
 
 # ==========================================
-# GESTION DES ACCÈS ET PORTAIL SÉCURISÉ
+# NAVIGATION ET MENU PRINCIPAL (SIMPLIFIÉ)
 # ==========================================
-if st.session_state.user_connecte is None:
-    st.title("🔐 Portail d'Enquête & d'Analyse Pédagogique")
-    t_conn, t_ins = st.tabs(["🔑 Se connecter", "📝 S'inscrire"])
-    
-    with t_ins:
-        st.subheader("Création de compte")
-        i_nom = st.text_input("Nom :", key="reg_nom").strip()
-        i_prenom = st.text_input("Prénom :", key="reg_prenom").strip()
-        i_role = st.selectbox("Rôle d'accès :", ["Apprenant", "Stagiaire"])
-        if st.button("💾 Valider l'inscription"):
-            if i_nom and i_prenom:
-                nouvel_u = pd.DataFrame([{"Nom": i_nom, "Prenom": i_prenom, "Role": i_role}])
-                st.session_state.db_utilisateurs = pd.concat([st.session_state.db_utilisateurs, nouvel_u], ignore_index=True)
-                st.success("Inscription effectuée ! Passez à l'onglet connexion.")
-                
-    with t_conn:
-        st.subheader("Identification")
-        c_nom = st.text_input("Nom :", key="log_nom").strip()
-        c_prenom = st.text_input("Prénom :", key="log_prenom").strip()
-        if st.button("🚀 Ouvrir ma session"):
-            u_trouve = st.session_state.db_utilisateurs[
-                (st.session_state.db_utilisateurs["Nom"].str.lower() == c_nom.lower()) & 
-                (st.session_state.db_utilisateurs["Prenom"].str.lower() == c_prenom.lower())
-            ]
-            if not u_trouve.empty:
-                st.session_state.user_connecte = u_trouve.iloc[0].to_dict()
-                st.rerun()
+st.sidebar.title("📌 Menu de Navigation")
+page = st.sidebar.radio("Aller vers :", ["📝 Formulaire Questionnaire", "📊 Espace Analyse & Rapports"])
+
+# --------------------------------------------------
+# 1. ESPACE ENQUÊTE (ANONYME)
+# --------------------------------------------------
+if page == "📝 Formulaire Questionnaire":
+    st.markdown(
+        """
+        <div style="background-color: #f4fbf7; padding: 25px; border-radius: 8px; border-left: 6px solid #2e7d32; margin-bottom: 25px;">
+            <h2 style="color: #1b5e20; margin-top: 0; font-family: 'Arial'; font-weight: bold;">QUESTIONNAIRE DÉTAILLÉ DESTINÉ AUX APPRENANTS</h2>
+            <h4 style="color: #2e7d32; font-weight: bold; margin-top: 15px; margin-bottom: 5px;">Introduction</h4>
+            <p style="color: #333333; font-style: italic; font-size: 15px; line-height: 1.6;">
+                <b>Cher(e) apprenant,</b><br>
+                Ce questionnaire vise à recueillir ton avis sur les exercices pratiques réalisés pendant les cours 
+                d'Histoire-Géographie et Éducation à la Citoyenneté.
+            </p>
+            <p style="color: #424242; font-size: 14.5px;">
+                Tes réponses aideront à comprendre les difficultés rencontrées et à améliorer les méthodes d'enseignement.
+            </p>
+            <p style="color: #1b5e20; font-weight: bold; font-size: 14.5px; margin-top: 12px;">
+                Merci de répondre avec sincérité (Le questionnaire est totalement anonyme).
+            </p>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
+    with st.form("form_saisie", clear_on_submit=True):
+        st.subheader("I. Informations d'identification")
+        sexe = st.radio("1. Sexe :", ["Masculin", "Féminin"])
+        classe = st.selectbox("2. Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"])
+        etablissement = st.text_input("3. Établissement fréquenté :", placeholder="Ex: LES PINTALKS")
+
+        st.markdown("---")
+        st.subheader("II. Expérience des exercices pratiques")
+        frequence = st.select_slider("1. Ton professeur fait-il souvent des exercices pratiques ?", options=["Jamais", "Rarement", "Parfois", "Souvent", "Toujours"])
+        types_ex = st.multiselect("2. Quels genres d'exercices pratiques réalisez-vous ?", ["Lecture de cartes", "Analyse d'un texte ou d'une image", "Travail en groupe", "Sorties ou enquêtes", "Jeux de rôle"])
+        consignes = st.radio("3. Comprends-tu bien les consignes données ?", ["Oui, toujours", "Oui, parfois", "Non, pas vraiment"])
+        outils = st.radio("4. As-tu les outils nécessaires pour bien participer ?", ["Oui", "Non"])
+        impact = st.radio("5. Ces exercices t'aident-ils à mieux comprendre les leçons ?", ["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"])
+
+        st.markdown("---")
+        st.subheader("III. Difficultés et obstacles")
+        difficultes = st.multiselect("1. Quelles difficultés rencontres-tu ?", ["Pas assez de matériel", "Pas assez de temps", "Le professeur ne donne pas assez d'explications", "Difficulté à travailler en groupe", "Bruit/désordre en classe"])
+        exemple = st.text_area("2. Exemple concret d'exercice :")
+
+        st.markdown("---")
+        st.subheader("IV. Amélioration et suggestions")
+        attentes = st.multiselect("1. Qu'aimerais-tu que ton professeur fasse ?", ["Plus de matériel", "Plus d'explications", "Plus de temps", "Sorties pédagogiques"])
+        citoyennete = st.radio("2. Utilité pour devenir un bon citoyen ?", ["Oui", "Non", "Je ne sais pas"])
+
+        if st.form_submit_button("💾 Sauvegarder mes réponses"):
+            if not etablissement:
+                st.error("L'établissement doit être complété.")
             else:
-                if c_nom.lower() == "admin" or c_nom == "":
-                    st.session_state.user_connecte = {"Nom": "Anonyme", "Prenom": "Stagiaire", "Role": "Stagiaire"}
-                    st.rerun()
-                st.error("Utilisateur introuvable.")
+                prochain_id = int(st.session_state.db_apprenants["ID"].max() + 1) if not st.session_state.db_apprenants.empty else 1
+                nouvelle_reponse = {
+                    "ID": prochain_id, "Sexe": sexe, "Classe": classe, "Etablissement": etablissement,
+                    "Frequence_Ex": frequence, "Types_Ex": ", ".join(types_ex), "Comprehension_Consignes": consignes,
+                    "Outils_Dispo": outils, "Impact_Comprehension": impact,
+                    "Difficultes": ", ".join(difficultes), "Exemple_Exercice": exemple,
+                    "Attentes_Prof": ", ".join(attentes), "Utilite_Citoyenne": citoyennete
+                }
+                st.session_state.db_apprenants = pd.concat([st.session_state.db_apprenants, pd.DataFrame([nouvelle_reponse])], ignore_index=True)
+                st.success("Données enregistrées anonymement avec succès.")
 
-# ==========================================
-# APPLICATION APRÈS CONNEXION
-# ==========================================
+# --------------------------------------------------
+# 2. ESPACE ANALYSE : GESTION, MODIFICATION ET SUPPRESSION
+# --------------------------------------------------
 else:
-    user = st.session_state.user_connecte
-    st.sidebar.info(f"👤 Nom : {user['Nom']}\n\n👤 Prénom : {user['Prenom']}\n\n💼 Rôle : **{user['Role']}**")
-    
-    if st.sidebar.button("🚪 Déconnexion"):
-        st.session_state.user_connecte = None
-        st.session_state.id_a_modifier = None
-        st.rerun()
+    st.title("📊 Tableau de Bord Consolidation Analytique")
+    df_app = st.session_state.db_apprenants
 
-    page = "📝 Formulaire Élève" if user["Role"] == "Apprenant" else st.sidebar.radio("Navigation :", ["📊 Espace Stagiaire (Rapports)", "📝 Formulaire Élève"])
-
-    # --------------------------------------------------
-    # 1. ESPACE ENQUÊTE
-    # --------------------------------------------------
-    if page == "📝 Formulaire Élève":
-        st.markdown(
-            """
-            <div style="background-color: #f4fbf7; padding: 25px; border-radius: 8px; border-left: 6px solid #2e7d32; margin-bottom: 25px;">
-                <h2 style="color: #1b5e20; margin-top: 0; font-family: 'Arial'; font-weight: bold;">QUESTIONNAIRE DÉTAILLÉ DESTINÉ AUX APPRENANTS</h2>
-                <h4 style="color: #2e7d32; font-weight: bold; margin-top: 15px; margin-bottom: 5px;">Introduction</h4>
-                <p style="color: #333333; font-style: italic; font-size: 15px; line-height: 1.6;">
-                    <b>Cher(e) apprenant,</b><br>
-                    Ce questionnaire vise à recueillir ton avis sur les exercices pratiques réalisés pendant les cours 
-                    d'Histoire-Géographie et Éducation à la Citoyenneté.
-                </p>
-                <p style="color: #424242; font-size: 14.5px;">
-                    Tes réponses aideront à comprendre les difficultés rencontrées et à améliorer les méthodes d'enseignement.
-                </p>
-                <p style="color: #1b5e20; font-weight: bold; font-size: 14.5px; margin-top: 12px;">
-                    Merci de répondre avec sincérité.
-                </p>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
-
-        with st.form("form_saisie", clear_on_submit=True):
-            st.subheader("I. Informations personnelles")
-            sexe = st.radio("1. Sexe :", ["Masculin", "Féminin"])
-            classe = st.selectbox("2. Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"])
-            etablissement = st.text_input("3. Établissement fréquenté :", placeholder="Ex: LES PINTALKS")
-
-            st.markdown("---")
-            st.subheader("II. Expérience des exercices pratiques")
-            frequence = st.select_slider("1. Ton professeur fait-il souvent des exercices pratiques ?", options=["Jamais", "Rarement", "Parfois", "Souvent", "Toujours"])
-            types_ex = st.multiselect("2. Quels genres d'exercices pratiques réalisez-vous ?", ["Lecture de cartes", "Analyse d'un texte ou d'une image", "Travail en groupe", "Sorties ou enquêtes", "Jeux de rôle"])
-            consignes = st.radio("3. Comprends-tu bien les consignes données ?", ["Oui, toujours", "Oui, parfois", "Non, pas vraiment"])
-            outils = st.radio("4. As-tu les outils nécessaires pour bien participer ?", ["Oui", "Non"])
-            impact = st.radio("5. Ces exercices t'aident-ils à mieux comprendre les leçons ?", ["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"])
-
-            st.markdown("---")
-            st.subheader("III. Difficultés et obstacles")
-            difficultes = st.multiselect("1. Quelles difficultés rencontres-tu ?", ["Pas assez de matériel", "Pas assez de temps", "Le professeur ne donne pas assez d'explications", "Difficulté à travailler en groupe", "Bruit/désordre en classe"])
-            exemple = st.text_area("2. Exemple concret d'exercice :")
-
-            st.markdown("---")
-            st.subheader("IV. Amélioration et suggestions")
-            attentes = st.multiselect("1. Qu'aimerais-tu que ton professeur fasse ?", ["Plus de matériel", "Plus d'explications", "Plus de temps", "Sorties pédagogiques"])
-            citoyennete = st.radio("2. Utilité pour devenir un bon citoyen ?", ["Oui", "Non", "Je ne sais pas"])
-
-            if st.form_submit_button("💾 Sauvegarder mes réponses"):
-                if not etablissement:
-                    st.error("L'établissement doit être complété.")
-                else:
-                    prochain_id = int(st.session_state.db_apprenants["ID"].max() + 1) if not st.session_state.db_apprenants.empty else 1
-                    nouvelle_reponse = {
-                        "ID": prochain_id, "Nom": user["Nom"], "Prenom": user["Prenom"], "Sexe": sexe, "Classe": classe, "Etablissement": etablissement,
-                        "Frequence_Ex": frequence, "Types_Ex": ", ".join(types_ex), "Comprehension_Consignes": consignes,
-                        "Outils_Dispo": outils, "Impact_Comprehension": impact,
-                        "Difficultes": ", ".join(difficultes), "Exemple_Exercice": exemple,
-                        "Attentes_Prof": ", ".join(attentes), "Utilite_Citoyenne": citoyennete
-                    }
-                    st.session_state.db_apprenants = pd.concat([st.session_state.db_apprenants, pd.DataFrame([nouvelle_reponse])], ignore_index=True)
-                    st.success("Données ajoutées avec succès.")
-
-    # --------------------------------------------------
-    # 2. ESPACE STAGIAIRE : VISUALISATION & ACTIONS (MODIFIER / SUPPRIMER)
-    # --------------------------------------------------
+    if df_app.empty:
+        st.warning("La base de données est vide pour le moment.")
     else:
-        st.title("📊 Espace Stagiaire — Consolidation Analytique")
-        df_app = st.session_state.db_apprenants
+        st.write("### ⚙️ Gestion et Modération des réponses")
+        
+        liste_options = [f"ID: {row['ID']} - Genre: {row['Sexe']} ({row['Classe']} - {row['Etablissement']})" for _, row in df_app.iterrows()]
+        choix_apprenant = st.selectbox("Sélectionner une fiche élève à éditer ou supprimer :", liste_options)
+        
+        if choix_apprenant:
+            id_selectionne = int(choix_apprenant.split(" - ")[0].replace("ID: ", ""))
+            ligne_apprenant = df_app[df_app["ID"] == id_selectionne].iloc[0]
 
-        if df_app.empty:
-            st.warning("La base de données des apprenants est actuellement vide.")
-        else:
-            # =========================================================
-            # SECTION : GESTION DES APPRENANTS (MODIFIER / SUPPRIMER)
-            # =========================================================
-            st.write("### ⚙️ Gestion et Modération des données")
+            col_btn1, col_btn2, _ = st.columns([1, 1, 4])
             
-            # Sélection de l'apprenant à gérer via une liste déroulante claire
-            liste_options = [f"ID: {row['ID']} - {row['Nom']} {row['Prenom']} ({row['Classe']} - {row['Etablissement']})" for _, row in df_app.iterrows()]
-            choix_apprenant = st.selectbox("Sélectionner un apprenant à éditer ou supprimer :", liste_options)
+            with col_btn1:
+                if st.button("📝 Modifier", key=f"edit_{id_selectionne}"):
+                    st.session_state.id_a_modifier = id_selectionne
             
-            if choix_apprenant:
-                id_selectionne = int(choix_apprenant.split(" - ")[0].replace("ID: ", ""))
-                ligne_apprenant = df_app[df_app["ID"] == id_selectionne].iloc[0]
+            with col_btn2:
+                if st.button("❌ Supprimer", key=f"del_{id_selectionne}"):
+                    st.session_state.db_apprenants = df_app[df_app["ID"] != id_selectionne].reset_index(drop=True)
+                    st.success(f"La fiche ID {id_selectionne} a été supprimée.")
+                    st.rerun()
 
-                col_btn1, col_btn2, _ = st.columns([1, 1, 4])
+            if st.session_state.id_a_modifier == id_selectionne:
+                st.warning(f"Modification en cours pour la fiche ID {id_selectionne}")
                 
-                with col_btn1:
-                    if st.button("📝 Modifier", key=f"edit_{id_selectionne}"):
-                        st.session_state.id_a_modifier = id_selectionne
-                
-                with col_btn2:
-                    if st.button("❌ Supprimer", key=f"del_{id_selectionne}"):
-                        st.session_state.db_apprenants = df_app[df_app["ID"] != id_selectionne].reset_index(drop=True)
-                        st.success(f"L'enregistrement ID {id_selectionne} a été supprimé avec succès !")
-                        st.rerun()
-
-                # --- Formulaire dynamique de modification ---
-                if st.session_state.id_a_modifier == id_selectionne:
-                    st.markdown("""<div style="background-color: #fff3e0; padding: 15px; border-radius: 5px; border-left: 4px solid #ff9800; margin-top: 10px;">
-                        <b>Formulaire de Modification de l'Apprenant</b></div>""", unsafe_allow_html=True)
+                with st.form("form_modification"):
+                    m_sexe = st.radio("Sexe :", ["Masculin", "Féminin"], index=["Masculin", "Féminin"].index(ligne_apprenant["Sexe"]))
+                    m_classe = st.selectbox("Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"], index=["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"].index(ligne_apprenant["Classe"]))
+                    m_etablissement = st.text_input("Établissement :", value=str(ligne_apprenant["Etablissement"]))
                     
-                    with st.form("form_modification"):
-                        # Préreemplissage avec les valeurs actuelles
-                        m_nom = st.text_input("Nom :", value=str(ligne_apprenant["Nom"]))
-                        m_prenom = st.text_input("Prénom :", value=str(ligne_apprenant["Prenom"]))
-                        m_sexe = st.radio("Sexe :", ["Masculin", "Féminin"], index=["Masculin", "Féminin"].index(ligne_apprenant["Sexe"]))
-                        m_classe = st.selectbox("Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"], index=["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"].index(ligne_apprenant["Classe"]))
-                        m_etablissement = st.text_input("Établissement :", value=str(ligne_apprenant["Etablissement"]))
-                        
-                        m_consignes = st.radio("Compréhension consignes :", ["Oui, toujours", "Oui, parfois", "Non, pas vraiment"], index=["Oui, toujours", "Oui, parfois", "Non, pas vraiment"].index(ligne_apprenant["Comprehension_Consignes"]))
-                        m_outils = st.radio("Outils disponibles :", ["Oui", "Non"], index=["Oui", "Non"].index(ligne_apprenant["Outils_Dispo"]))
-                        m_impact = st.radio("Apport sur la compréhension :", ["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"], index=["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"].index(ligne_apprenant["Impact_Comprehension"]))
-                        m_citoyennete = st.radio("Utilité citoyenne :", ["Oui", "Non", "Je ne sais pas"], index=["Oui", "Non", "Je ne sais pas"].index(ligne_apprenant["Utilite_Citoyenne"]))
-                        
-                        btn_maj1, btn_maj2 = st.columns(2)
-                        with btn_maj1:
-                            if st.form_submit_button("✅ Valider les modifications"):
-                                # Application des changements dans le DataFrame global
-                                idx = st.session_state.db_apprenants[st.session_state.db_apprenants["ID"] == id_selectionne].index[0]
-                                st.session_state.db_apprenants.at[idx, "Nom"] = m_nom
-                                st.session_state.db_apprenants.at[idx, "Prenom"] = m_prenom
-                                st.session_state.db_apprenants.at[idx, "Sexe"] = m_sexe
-                                st.session_state.db_apprenants.at[idx, "Classe"] = m_classe
-                                st.session_state.db_apprenants.at[idx, "Etablissement"] = m_etablissement
-                                st.session_state.db_apprenants.at[idx, "Comprehension_Consignes"] = m_consignes
-                                st.session_state.db_apprenants.at[idx, "Outils_Dispo"] = m_outils
-                                st.session_state.db_apprenants.at[idx, "Impact_Comprehension"] = m_impact
-                                st.session_state.db_apprenants.at[idx, "Utilite_Citoyenne"] = m_citoyennete
-                                
-                                st.session_state.id_a_modifier = None
-                                st.success("Informations mises à jour !")
-                                st.rerun()
-                        with btn_maj2:
-                            if st.form_submit_button("❌ Annuler"):
-                                st.session_state.id_a_modifier = None
-                                st.rerun()
+                    # Sécurisation des index par défaut
+                    opt_consignes = ["Oui, toujours", "Oui, parfois", "Non, pas vraiment"]
+                    idx_cons = opt_consignes.index(ligne_apprenant["Comprehension_Consignes"]) if ligne_apprenant["Comprehension_Consignes"] in opt_consignes else 0
+                    m_consignes = st.radio("Compréhension consignes :", opt_consignes, index=idx_cons)
+                    
+                    m_outils = st.radio("Outils disponibles :", ["Oui", "Non"], index=["Oui", "Non"].index(ligne_apprenant["Outils_Dispo"]))
+                    m_impact = st.radio("Apport sur la compréhension :", ["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"], index=["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"].index(ligne_apprenant["Impact_Comprehension"]))
+                    m_citoyennete = st.radio("Utilité citoyenne :", ["Oui", "Non", "Je ne sais pas"], index=["Oui", "Non", "Je ne sais pas"].index(ligne_apprenant["Utilite_Citoyenne"]))
+                    
+                    btn_maj1, btn_maj2 = st.columns(2)
+                    with btn_maj1:
+                        if st.form_submit_button("✅ Sauvegarder les modifications"):
+                            idx = st.session_state.db_apprenants[st.session_state.db_apprenants["ID"] == id_selectionne].index[0]
+                            st.session_state.db_apprenants.at[idx, "Sexe"] = m_sexe
+                            st.session_state.db_apprenants.at[idx, "Classe"] = m_classe
+                            st.session_state.db_apprenants.at[idx, "Etablissement"] = m_etablissement
+                            st.session_state.db_apprenants.at[idx, "Comprehension_Consignes"] = m_consignes
+                            st.session_state.db_apprenants.at[idx, "Outils_Dispo"] = m_outils
+                            st.session_state.db_apprenants.at[idx, "Impact_Comprehension"] = m_impact
+                            st.session_state.db_apprenants.at[idx, "Utilite_Citoyenne"] = m_citoyennete
+                            
+                            st.session_state.id_a_modifier = None
+                            st.success("Fiche mise à jour !")
+                            st.rerun()
+                    with btn_maj2:
+                        if st.form_submit_button("❌ Annuler"):
+                            st.session_state.id_a_modifier = None
+                            st.rerun()
 
-            st.markdown("---")
+        st.markdown("---")
 
-            # =========================================================
-            # SECTION : TELECHARGEMENT & STATISTIQUES (INCHANGÉES)
-            # =========================================================
-            st.subheader("📥 Téléchargement du Rapport")
-            try:
-                pdf_output = generer_pdf_statistique(st.session_state.db_apprenants)
-                st.download_button(
-                    label="📄 Télécharger le Rapport Analytique (PDF)",
-                    data=bytes(pdf_output),
-                    file_name="Rapport_Analytique_Officiel.pdf",
-                    mime="application/pdf"
-                )
-            except Exception as e:
-                st.error(f"Erreur lors de la génération du PDF : {e}")
+        # =========================================================
+        # EXPORT ET RAPPORTS STATISTIQUES
+        # =========================================================
+        st.subheader("📥 Téléchargement du Rapport Global")
+        try:
+            pdf_output = generer_pdf_statistique(st.session_state.db_apprenants)
+            st.download_button(
+                label="📄 Télécharger le Rapport Analytique (PDF)",
+                data=bytes(pdf_output),
+                file_name="Rapport_Analytique_Anonyme.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.error(f"Erreur PDF : {e}")
 
-            st.markdown("---")
-            
-            axe_vue = st.selectbox("Sélectionner l'axe didactique à inspecter :", 
-                                   ["Comprehension_Consignes", "Outils_Dispo", "Impact_Comprehension", "Utilite_Citoyenne"])
-            
-            df_stats = st.session_state.db_apprenants[axe_vue].value_counts().reset_index()
-            df_stats.columns = ["Modalité / Réponse", "Effectif (Nbr)"]
-            df_stats["Pourcentage (%)"] = (df_stats["Effectif (Nbr)"] / len(st.session_state.db_apprenants)) * 100
-            
-            st.write("#### 📅 Tableau de Répartition Statistique")
-            st.dataframe(df_stats.style.format({'Pourcentage (%)': '{:.1f} %'}), use_container_width=True)
-            
-            synthese_web = generer_synthese_axe(axe_vue, st.session_state.db_apprenants)
-            st.markdown(f"""
-            <div style="background-color: #f1f8e9; padding: 15px; border-radius: 5px; border-left: 4px solid #4caf50; margin-top: 10px; margin-bottom: 20px;">
-                <p style="margin-bottom: 6px;"><b>📝 CRITIQUE & DIAGNOSTIC AUTOMATISÉ :</b><br>{synthese_web['Critique']}</p>
-                <p style="margin-bottom: 6px;"><b>🔍 INTERPRÉTATION MÉTHODOLOGIQUE :</b><br>{synthese_web['Interpretation']}</p>
-                <p style="margin-bottom: 0; color: #2e7d32;"><b>💡 PROPOSITION DE REMÉDIATION PÉDAGOGIQUE :</b><br><i>{synthese_web['Solution']}</i></p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            fig = px.pie(df_stats, names="Modalité / Réponse", values="Effectif (Nbr)", hole=0.1, width=500, height=350)
-            st.plotly_chart(fig)
+        st.markdown("---")
+        
+        axe_vue = st.selectbox("Sélectionner l'axe didactique à inspecter :", 
+                               ["Comprehension_Consignes", "Outils_Dispo", "Impact_Comprehension", "Utilite_Citoyenne"])
+        
+        df_stats = st.session_state.db_apprenants[axe_vue].value_counts().reset_index()
+        df_stats.columns = ["Modalité / Réponse", "Effectif (Nbr)"]
+        df_stats["Pourcentage (%)"] = (df_stats["Effectif (Nbr)"] / len(st.session_state.db_apprenants)) * 100
+        
+        st.write("#### 📅 Tableau de Répartition Statistique")
+        st.dataframe(df_stats.style.format({'Pourcentage (%)': '{:.1f} %'}), use_container_width=True)
+        
+        # Injection sûre de la synthèse textuelle
+        synthese_web = generer_synthese_axe(axe_vue, st.session_state.db_apprenants)
+        st.markdown(f"""
+        <div style="background-color: #f1f8e9; padding: 15px; border-radius: 5px; border-left: 4px solid #4caf50; margin-top: 10px; margin-bottom: 20px;">
+            <p style="margin-bottom: 6px;"><b>📝 CRITIQUE & DIAGNOSTIC AUTOMATISÉ :</b><br>{synthese_web['Critique']}</p>
+            <p style="margin-bottom: 6px;"><b>🔍 INTERPRÉTATION MÉTHODOLOGIQUE :</b><br>{synthese_web['Interpretation']}</p>
+            <p style="margin-bottom: 0; color: #2e7d32;"><b>💡 PROPOSITION DE REMÉDIATION PÉDAGOGIQUE :</b><br><i>{synthese_web['Solution']}</i></p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        fig = px.pie(df_stats, names="Modalité / Réponse", values="Effectif (Nbr)", hole=0.1, width=500, height=350)
+        st.plotly_chart(fig)
