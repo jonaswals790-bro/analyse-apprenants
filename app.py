@@ -1,352 +1,380 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
-import matplotlib.pyplot as plt
 from fpdf import FPDF
 import io
 import os
 
-# Configuration de l'application
-st.set_page_config(page_title="Système d'Analyse Statistique Pédagogique", layout="wide")
+# --- CONFIGURATION DE LA PAGE ---
+st.set_page_config(
+    page_title="EduAnalyse Pro - Histoire-Géo & Éducation à la Citoyenneté",
+    page_icon="🎓",
+    layout="wide"
+)
 
-# ==========================================
-# INITIALISATION DES BASES DE DONNÉES (SESSION)
-# ==========================================
-if 'db_apprenants' not in st.session_state:
-    st.session_state.db_apprenants = pd.DataFrame(columns=[
-        "ID", "Sexe", "Classe", "Etablissement", "Frequence_Ex", 
-        "Types_Ex", "Comprehension_Consignes", "Outils_Dispo", 
-        "Impact_Comprehension", "Difficultes", "Exemple_Exercice", 
-        "Attentes_Prof", "Utilite_Citoyenne"
-    ])
+DB_FILE = "data_collecte.csv"
 
-if 'id_a_modifier' not in st.session_state:
-    st.session_state.id_a_modifier = None
+# --- INTERACTION GOOGLE WORKSPACE ---
+try:
+    from gemkick_corpus import create_document
+    HAS_WORKSPACE = True
+except ImportError:
+    HAS_WORKSPACE = False
 
-# =========================================================
-# MOTEUR INTERPRÉTATIF GLOBAL
-# =========================================================
-def generer_synthese_axe(axe_colonne, df):
-    total = len(df)
-    if total == 0:
-        return {
-            "Critique": "Aucune donnée n'est actuellement enregistrée pour cet indicateur.",
-            "Interpretation": "L'analyse est suspendue en attente de soumissions via le formulaire questionnaire.",
-            "Solution": "Recommandation : Veuillez renseigner des fiches apprenants pour générer un diagnostic."
-        }
-        
-    counts = df[axe_colonne].value_counts()
-    critique, interpretation, solution = "", "", ""
-    
-    if axe_colonne == "Comprehension_Consignes":
-        mal_compris = counts.get("Non, pas vraiment", 0) + counts.get("Oui, parfois", 0)
-        pct = (mal_compris / total) * 100
-        critique = f"L'évaluation quantitative révèle une zone d'ombre didactique majeure : {pct:.1f}% des apprenants manifestent un déficit d'assimilation (partiel ou total) vis-à-vis des consignes dictées lors des travaux pratiques."
-        interpretation = "Ce phénomène met en exergue un écart de décodage sémantique. La formulation textuelle ou conceptuelle des instructions fait face à une barrière d'autonomie cognitive chez les élèves, souvent accentuée par le manque de phases de contextualisation en amont."
-        solution = "Axe d'optimisation : Instaurer un protocole de clarification systémique. Impliquer un élève témoin pour reformuler la consigne avec ses propres mots avant le lancement de l'activité, et vulgariser les verbes d'action sous forme d'infographies méthodologiques."
-        
-    elif axe_colonne == "Outils_Dispo":
-        sans_outils = counts.get("Non", 0)
-        pct = (sans_outils / total) * 100
-        if pct > 0:
-            critique = f"Le diagnostic infrastructurel met en relief une fracture logistique contraignante : {pct:.1f}% de la population échantillonnée évolue sans les supports matériels obligatoires (manuels, atlas, extraits de documents)."
-            interpretation = "La carence en outils didactiques individuels agit comme un vecteur d'iniquité d'apprentissage. Elle ralentit la cadence d'exécution des ateliers pratiques et restreint l'ancrage empirique des connaissances théoriques."
-            solution = "Axe d'optimisation : Mettre en place un écosystème de mutualisation au sein de la classe (ingénierie par binômes solidaires) et concevoir un répertoire de fiches documentaires plastifiées à usage partagé."
-        else:
-            critique = "L'indicateur logistique présente un profil optimal : 100% des apprenants disposent de l'environnement matériel requis."
-            interpretation = "Cette convergence matérielle garantit l'alignement pédagogique et offre des conditions idéales pour une mise en pratique fluide et immédiate des savoirs."
-            solution = "Axe d'optimisation : Capitaliser sur cette robustesse logistique pour introduire graduellement des supports documentaires plus complexes ou des composantes numériques complémentaires."
+# --- FONCTION DE SAUVEGARDE DES DONNÉES ---
+def sauvegarder_donnees(dict_data):
+    df_new = pd.DataFrame([dict_data])
+    if not os.path.isfile(DB_FILE):
+        df_new.to_csv(DB_FILE, index=False, encoding='utf-8')
+    else:
+        df_new.to_csv(DB_FILE, mode='a', header=False, index=False, encoding='utf-8')
 
-    elif axe_colonne == "Impact_Comprehension":
-        positif = counts.get("Oui, beaucoup", 0) + counts.get("Oui, un peu", 0)
-        pct = (positif / total) * 100
-        critique = f"La corrélation empirique est solidement validée : {pct:.1f}% des apprenants attribuent une valeur ajoutée explicite aux exercices pratiques dans le processus de clarification des cours magistraux."
-        interpretation = "Cela corrobore les théories du constructivisme pédagogique : le passage par la manipulation textuelle, cartographique ou statistique donne du sens au savoir abstrait, ancrant les concepts d'Histoire-Géographie dans la mémoire sémantique à long terme."
-        solution = "Axe d'optimisation : Institutionnaliser ces ateliers pratiques à intervalles réguliers tout en veillant à une gestion rigoureuse du temps (micro-ateliers rythmés) pour préserver l'équilibre du programme annuel."
-
-    elif axe_colonne == "Utilite_Citoyenne":
-        flou = counts.get("Je ne sais pas", 0) + counts.get("Non", 0)
-        pct = (flou / total) * 100
-        critique = f"Un découplage civique sensible est identifié : {pct:.1f}% des élèves n'établissent pas de lien direct ou conscient entre la finalité des exercices pratiques et leur projection en tant que citoyens actifs."
-        interpretation = "L'Éducation à la Citoyenneté souffre d'un biais d'abstraction. Elle émerge comme une discipline purement académique évaluative plutôt que comme une boîte à outils pratique dédiée à la compréhension et à la transformation des réalités sociétales."
-        solution = "Axe d'optimisation : Réancrer l'enseignement civique dans l'immédiateté du terrain. Adosser les exercices à des cas concrets de gouvernance de proximité (analyse du budget participatif d'une commune, enquêtes collectives de salubrité de quartier, simulations de conseils municipaux)."
-
-    return {"Critique": critique, "Interpretation": interpretation, "Solution": solution}
+# --- CHARGEMENT DES DONNÉES ---
+def charger_donnees():
+    if os.path.isfile(DB_FILE):
+        return pd.read_csv(DB_FILE, encoding='utf-8')
+    return pd.DataFrame()
 
 # =========================================================
-# GÉNÉRATION DU RAPPORT EXECUTIVE (PDF HAUTE QUALITÉ)
+# MOTEUR DE GÉNÉRATION DU RAPPORT PDF PROFESSIONNEL (FPDF)
 # =========================================================
-def generer_pdf_statistique(df):
-    pdf = FPDF()
+class PDFRapportMemoire(FPDF):
+    def header(self):
+        # En-tête uniquement sur les pages normales (pas la garde)
+        if self.page_no() > 1:
+            self.set_font("Helvetica", "I", 8)
+            self.set_text_color(128, 128, 128)
+            self.cell(0, 10, "Rapport d'Analyse Statistique et Critique - Memoire Universitaire", ln=True, align="R")
+            self.ln(5)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font("Helvetica", "I", 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 10, f"Page {self.page_no()}/{{nb}}", align="C")
+
+def generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct, toujours_frequence_pct):
+    pdf = PDFRapportMemoire()
+    pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=15)
     
-    if df.empty:
-        pdf.add_page()
-        pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, "Rapport Analytique - Aucune donnee disponible", ln=True, align="C")
-        return pdf.output()
-        
-    axes_analyse = [
-        {"titre": "1. NIVEAU DE COMPREHENSION DES CONSIGNES DEDUITES", "colonne": "Comprehension_Consignes"},
-        {"titre": "2. ANALYSE LOGISTIQUE : DISPONIBILITE DES OUTILS", "colonne": "Outils_Dispo"},
-        {"titre": "3. IMPACT COGNITIF SUR LA COMPREHENSION THEORIQUE", "colonne": "Impact_Comprehension"},
-        {"titre": "4. PERCEPTION ET ADEQUATION DE L'UTILITE CITOYENNE", "colonne": "Utilite_Citoyenne"}
-    ]
+    # --- PAGE DE GARDE INSTITUTIONNELLE ---
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(26, 54, 93)  # Bleu nuit
+    pdf.cell(0, 20, "RAPPORT D'ANALYSE SCIENTIFIQUE ET DIAGNOSTIC PÉDAGOGIQUE", ln=True, align="C")
     
-    for axe in axes_analyse:
-        pdf.add_page()
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.set_text_color(27, 94, 32) 
-        pdf.cell(0, 10, axe["titre"], ln=True)
-        pdf.set_text_color(0, 0, 0)
-        pdf.ln(3)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(43, 108, 176)
+    pdf.cell(0, 10, "Valorisation de l'Enseignement de l'Histoire-Geographie et Education a la Citoyennete", ln=True, align="C")
+    
+    pdf.ln(15)
+    pdf.set_font("Helvetica", "I", 10)
+    pdf.set_text_color(50, 50, 50)
+    pdf.cell(0, 10, "Document de recherche appliquee pour memoire de fin d'etudes universitaire", ln=True, align="R")
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(10)
+    
+    # 1. Introduction
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 10, "1. INTRODUCTION ET CADRE METHODOLOGIQUE", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(0, 0, 0)
+    intro_txt = (
+        f"Ce rapport compile, traite et analyse scientifiquement les donnees brutes issues des fiches d'evaluation "
+        f"completees anonymement par les apprenants. L'objectif de cette demarche empirique est de mesurer avec precision "
+        f"l'impact des exercices pratiques sur la transposition didactique et l'assimilation cognitive des notions de cours.\n\n"
+        f"Taille de l'echantillon d'etude actuel : {total_fiches} fiches apprenants valides et enregistrees en base de donnees."
+    )
+    pdf.multi_cell(0, 5, intro_txt)
+    pdf.ln(10)
+    
+    # 2. Tableau Statistique
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 10, "2. TABLEAU SYNTHETIQUE DES VARIABLES CLES DE L'APPRENTISSAGE", ln=True)
+    pdf.ln(2)
+    
+    # Structure de tableau FPDF
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_fill_color(237, 242, 247)
+    pdf.cell(100, 8, " Indicateur Pedagogique Evalue", border=1, fill=True)
+    pdf.cell(40, 8, " Proportion (%)", border=1, fill=True, align="C")
+    pdf.cell(50, 8, " Seuil de Vigilance", border=1, fill=True, align="C")
+    pdf.ln()
+    
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(100, 8, " Manque d'outils necessaires (livres, atlas, cartes...)", border=1)
+    pdf.cell(40, 8, f" {sans_outils_pct:.1f} %", border=1, align="C")
+    pdf.cell(50, 8, " Alerte critique si > 30%", border=1, align="C")
+    pdf.ln()
+    
+    pdf.cell(100, 8, " Difficulte severe a decoder les consignes", border=1)
+    pdf.cell(40, 8, f" {mauvaise_comp_pct:.1f} %", border=1, align="C")
+    pdf.cell(50, 8, " Alerte critique si > 25%", border=1, align="C")
+    pdf.ln()
+    
+    pdf.cell(100, 8, " Pratique continue des ateliers (Toujours)", border=1)
+    pdf.cell(40, 8, f" {toujours_frequence_pct:.1f} %", border=1, align="C")
+    pdf.cell(50, 8, " Objectif Valorisation > 50%", border=1, align="C")
+    pdf.ln()
+    
+    pdf.ln(10)
+    
+    # 3. Interprétation et critique
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 10, "3. INTERPRETATION ANALYTIQUE ET DISCUSSIONS CRITIQUES", ln=True)
+    
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(43, 108, 176)
+    pdf.cell(0, 6, "A. Analyse descriptive des variables materielles :", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(0, 0, 0)
+    interp_mat = (
+        f"L'analyse statistique met en exergue que {sans_outils_pct:.1f}% des apprenants declarent evoluer "
+        f"sans supports de travail individuels. En sciences de l'education, l'absence d'outils cartographiques et textuels "
+        f"cree une rupture epistemologique majeure. L'enseignement se rigidifie sous une forme passive et exclusivement "
+        f"theorique, restreignant la construction de reperes spatio-temporels autonomes chez l'eleve."
+    )
+    pdf.multi_cell(0, 5, interp_mat)
+    pdf.ln(4)
+    
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(43, 108, 176)
+    pdf.cell(0, 6, "B. Critique didactique des pratiques d'evaluation :", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(0, 0, 0)
+    interp_ped = (
+        f"L'indice d'incomprehension s'etablit a {mauvaise_comp_pct:.1f}%. Ce resultat atteste d'un ecart lexical significatif "
+        f"entre le niveau d'encodage des consignes de l'enseignant et les structures cognitives de decodage de l'apprenant. "
+        f"Une consigne opaque neutralise l'efficacite de la situation-probleme, devie l'exercice de son but formatif "
+        f"et entraine un decrochage progressif de l'apprenant vis-a-vis de la matiere."
+    )
+    pdf.multi_cell(0, 5, interp_ped)
+    pdf.ln(10)
+    
+    # 4. Recommandations
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 10, "4. STRATEGIES ACADEMIQUES DE RECONVERSION ET REMEDIATION", ln=True)
+    
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(34, 84, 61)
+    pdf.cell(0, 6, "[Pour le Corps Enseignant]", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(0, 0, 0)
+    pdf.multi_cell(0, 5, "- Sequençage systematique : Fragmenter les enonces d'exercices complexes en sous-taches explicites.\n- Mutualisation Logistique : Initier des ateliers a supports partages (binomes solidaires avec atlas central).")
+    pdf.ln(4)
+    
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(34, 84, 61)
+    pdf.cell(0, 6, "[Pour les Apprenants]", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(0, 0, 0)
+    pdf.multi_cell(0, 5, "- Pratique active du questionnement : Solliciter une verbalisation alternative de la part du professeur des le debut de l'exercice.\n- Entraide intra-muros : Partager activement les manuels disponibles dans les groupes d'etude.")
+    
+    # --- PAGE SUIVANTE : ANNEXE DES DONNÉES BRUTES ---
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(0, 10, "5. ANNEXE ACADEMIQUE : REGISTRE INTEGRAL DES DONNEES BRUTES", ln=True)
+    pdf.set_font("Helvetica", "I", 9)
+    pdf.cell(0, 6, "Liste exhaustive des fiches traitees et comptabilisees dans l'etude :", ln=True)
+    pdf.ln(4)
+    
+    # Remplissage dynamique des lignes brutes enregistrées
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(15, 6, "Genre", border=1, fill=True)
+    pdf.cell(15, 6, "Classe", border=1, fill=True)
+    pdf.cell(35, 6, "Etablissement", border=1, fill=True)
+    pdf.cell(25, 6, "Freq. Ex", border=1, fill=True)
+    pdf.cell(20, 6, "Compreh.", border=1, fill=True)
+    pdf.cell(15, 6, "Outils", border=1, fill=True)
+    pdf.cell(30, 6, "Aide Lecon", border=1, fill=True)
+    pdf.cell(35, 6, "Utilite Civ.", border=1, fill=True)
+    pdf.ln()
+    
+    pdf.set_font("Helvetica", "", 7.5)
+    for _, row in df.iterrows():
+        # Troncature propre pour eviter les debordements de cellules FPDF
+        etab = str(row.get('Etablissement', ''))[:20]
+        freq = str(row.get('Frequence_Ex', ''))
+        comp = str(row.get('Comprehension', ''))
+        out = str(row.get('Outils', ''))
+        aide = str(row.get('Aide_Lecon', ''))
+        cit = str(row.get('Utilite_Citoyen', ''))
         
-        col = axe["colonne"]
-        counts = df[col].value_counts()
-        total = len(df)
-        
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.set_fill_color(230, 240, 235)
-        pdf.cell(85, 8, " Modalite de reponse", border=1, fill=True)
-        pdf.cell(40, 8, "Effectif (Nbr)", border=1, fill=True, align="C")
-        pdf.cell(45, 8, "Pourcentage (%)", border=1, fill=True, align="C")
+        pdf.cell(15, 6, str(row.get('Sexe', '')), border=1)
+        pdf.cell(15, 6, str(row.get('Classe', '')), border=1)
+        pdf.cell(35, 6, etab, border=1)
+        pdf.cell(25, 6, freq, border=1)
+        pdf.cell(20, 6, comp, border=1)
+        pdf.cell(15, 6, out, border=1)
+        pdf.cell(30, 6, aide, border=1)
+        pdf.cell(35, 6, cit, border=1)
         pdf.ln()
         
-        pdf.set_font("Helvetica", "", 10)
-        for val, count in counts.items():
-            pct = (count / total) * 100
-            pdf.cell(85, 8, f" {str(val)}", border=1)
-            pdf.cell(40, 8, str(count), border=1, align="C")
-            pdf.cell(45, 8, f"{pct:.1f} %", border=1, align="C")
-            pdf.ln()
-            
-        pdf.ln(8)
-        
-        synthese = generer_synthese_axe(col, df)
-        
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 5, "CRITIQUE ET AUDIT STATISTIQUE :", ln=True)
-        pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(0, 5, synthese["Critique"].encode('latin-1', 'replace').decode('latin-1'))
-        pdf.ln(3)
-        
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 5, "INTERPRETATION PEDAGOGIQUE ET REPERCUSSIONS :", ln=True)
-        pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(0, 5, synthese["Interpretation"].encode('latin-1', 'replace').decode('latin-1'))
-        pdf.ln(3)
-        
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.set_text_color(46, 125, 50) 
-        pdf.cell(0, 5, "AXES STRATEGIQUES DE REMEDIATION :", ln=True)
-        pdf.set_font("Helvetica", "I", 10)
-        pdf.multi_cell(0, 5, synthese["Solution"].encode('latin-1', 'replace').decode('latin-1'))
-        pdf.set_text_color(0, 0, 0)
-        pdf.ln(5)
-        
-        if not counts.empty:
-            plt.figure(figsize=(4.5, 2.2))
-            plt.pie(counts, labels=counts.index, autopct='%1.1f%%', startangle=140, 
-                    colors=['#2e7d32', '#ffb300', '#c62828', '#1565c0'][:len(counts)])
-            plt.tight_layout()
-            filename = f"temp_chart_{col}.png"
-            plt.savefig(filename, dpi=200)
-            plt.close()
-            pdf.image(filename, x=60, y=pdf.get_y() + 2, w=90)
-            os.remove(filename)
-        
-    return pdf.output()
+    # --- AJUSTEMENT POUR COMPATIBILITÉ FPDF2 & EVITER L'ERREUR DE TYPE 'BYTEARRAY' ---
+    pdf_bytes = pdf.output()
+    if isinstance(pdf_bytes, (bytes, bytearray)):
+        return bytes(pdf_bytes)
+    return pdf_bytes.encode('latin1', errors='replace')
+
+# --- BARRE LATÉRALE DE NAVIGATION ---
+st.sidebar.title("🎓 EduAnalyse Mémoire Pro")
+menu = st.sidebar.radio("Navigation", ["📝 Enregistrement des Données (Fiche)", "📊 Dashboard & Recommandations IA"])
 
 # ==========================================
-# NAVIGATION & DESIGN DES INTERFACES
+# 1. OPTION : ENREGISTREMENT FIDÈLE DU TEXTE DE LA FICHE APPRENANT
 # ==========================================
-st.sidebar.title("📌 Menu de Navigation")
-page = st.sidebar.radio("Aller vers :", ["📝 Formulaire Questionnaire", "📊 Espace Analyse & Reports"])
-
-# --------------------------------------------------
-# 1. INTERFACE FORMULAIRE QUESTIONNAIRE
-# --------------------------------------------------
-if page == "📝 Formulaire Questionnaire":
-    st.markdown(
-        """
-        <div style="background-color: #f4fbf7; padding: 25px; border-radius: 10px; border-left: 6px solid #2e7d32; margin-bottom: 25px;">
-            <h2 style="color: #1b5e20; margin-top: 0; font-family: 'Arial'; font-weight: bold;">EVALUATION PEDAGOGIQUE DES APPRENANTS</h2>
-            <h5 style="color: #2e7d32; font-weight: bold; margin-top: 15px;">Avis sur les Dispositifs d'Exercices Pratiques</h5>
-            <p style="color: #333333; font-style: italic; font-size: 14.5px;">
-                Ce questionnaire vise à collecter vos retours d'expérience concernant les applications concrètes menées en Histoire-Géographie et Éducation à la Citoyenneté.
-            </p>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-
-    with st.form("form_saisie", clear_on_submit=True):
-        st.subheader("I. Profil Général de l'Apprenant")
+if menu == "📝 Enregistrement des Données (Fiche)":
+    st.title("📋 Questionnaire Détaillé destiné aux Apprenants")
+    st.markdown("**Introduction** : Cher(e) apprenant. Ce questionnaire vise à recueillir ton avis sur les exercices pratiques réalisés pendant les cours d'Histoire-Géographie et Éducation à la Citoyenneté. Tes réponses aideront à comprendre les difficultés rencontrées et à améliorer les méthodes d'enseignement. Merci de répondre avec sincérité.")
+    st.write("---")
+    
+    with st.form("form_strict", clear_on_submit=True):
+        st.subheader("I. Informations personnelles")
         col1, col2 = st.columns(2)
         with col1:
             sexe = st.radio("1. Sexe :", ["Masculin", "Féminin"])
-            classe = st.selectbox("2. Classe actuelle :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"])
+            classe = st.radio("2. Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"])
         with col2:
-            etablissement = st.text_input("3. Établissement d'attache :", placeholder="Ex: LES PINTALKS")
-
-        st.markdown("---")
-        st.subheader("II. Diagnostic de l'Expérience Pratique")
-        frequence = st.select_slider("1. Fréquence d'exposition :", options=["Jamais", "Rarement", "Parfois", "Souvent", "Toujours"])
-        types_ex = st.multiselect("2. Nature des exercices :", ["Lecture de cartes", "Analyse d'un texte ou d'une image", "Travail en groupe", "Sorties ou enquêtes", "Jeux de rôle"])
+            etablissement = st.text_input("3. Établissement fréquenté :", value="LES PINTALKS")
+            
+        st.write("---")
+        st.subheader("II. Expérience des exercices pratiques")
+        frequence_ex = st.radio("1. Ton professeur fait-il souvent des exercices pratiques pendant les cours ?", 
+                                ["Toujours", "Souvent", "Parfois", "Rarement", "Jamais"])
         
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            consignes = st.radio("3. Clarté des consignes :", ["Oui, toujours", "Oui, parfois", "Non, pas vraiment"])
-        with c2:
-            outils = st.radio("4. Outils disponibles :", ["Oui", "Non"])
-        with c3:
-            impact = st.radio("5. Impact perçu :", ["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"])
+        genres_ex = st.multiselect("2. Quels genres d'exercices pratiques réalisez-vous ?",
+                                   ["Lecture de cartes", "Analyse d'un texte ou d'une image", "Travail en groupe", "Sorties ou enquêtes", "Jeux de rôle"])
+        autre_genre = st.text_input("Autre :")
+        
+        comprehension = st.radio("3. Comprends-tu bien les consignes données lors de ces exercices ?", ["Oui toujours", "Oui parfois", "Non pas vraiment"])
+        outils = st.radio("4. As-tu les outils nécessaires pour bien participer (livres, atlas, cahier, carte, etc.) ?", ["Oui", "Non"])
+        aide_lecon = st.radio("5. Ces exercices t'aident-ils à mieux comprendre les leçons ?", ["Oui beaucoup", "Oui un peu", "Non vraiment", "Pas du tout"])
+        
+        st.write("---")
+        st.subheader("III. Difficultés et obstacles")
+        difficultes = st.multiselect("1. Quelles difficultés rencontres-tu pendant ces exercices ?",
+                                     ["Pas assez de matériel", "Pas assez de temps", "Le professeur ne donne pas assez d'explications", "Difficulté à travailler en groupe", "Bruit/désordre en classe"])
+        autre_diff = st.text_input("Autres :")
+        
+        exemple_ex = st.text_area("2. Donne un exemple d'exercice pratique que tu as aimé ou pas aluse, et pourquoi")
+        
+        st.write("---")
+        st.subheader("IV. Amélioration et suggestions")
+        suggestions = st.multiselect("1. Qu'aimerais-tu que ton professeur fasse pour améliorer ces exercious ?",
+                                     ["Plus de matériel", "Plus d'explications", "Plus ce temps", "Sorties pédagogiques"])
+        autre_sug = st.text_input("Autre")
+        
+        utilite_citoyen = st.radio("2. Selon toi, les exercices pratiques sont-ils utiles pour devenir un bon citoyen ?", ["Oui", "Non", "Je ne sais pas"])
+        
+        submit = st.form_submit_button("💾 Enregistrer les informations")
+        
+        if submit:
+            data = {
+                "Sexe": sexe, "Classe": classe, "Etablissement": etablissement.upper(),
+                "Frequence_Ex": frequence_ex, "Genres_Ex": ", ".join(genres_ex), "Autre_Genre": autre_genre,
+                "Comprehension": comprehension, "Outils": outils, "Aide_Lecon": aide_lecon,
+                "Difficultes": ", ".join(difficultes), "Autre_Diff": autre_diff, "Exemple_Texte": exemple_ex,
+                "Suggestions": ", ".join(suggestions), "Autre_Sug": autre_sug, "Utilite_Citoyen": utilite_citoyen
+            }
+            sauvegarder_donnees(data)
+            st.success("🎉 Les informations textuelles de la fiche ont été correctement archivées.")
 
-        st.markdown("---")
-        st.subheader("III. Enquêtes sur les Barrières d'Apprentissage")
-        difficultes = st.multiselect("1. Contraintes identifiées :", ["Pas assez de matériel", "Pas assez de temps", "Le professeur ne donne pas assez d'explications", "Difficulté à travailler en groupe"])
-        exemple = st.text_area("2. Exemple d'exercice complexe :")
-
-        st.markdown("---")
-        st.subheader("IV. Perspectives Stratégiques et Citoyenneté")
-        attentes = st.multiselect("1. Attentes prioritaires :", ["Plus de matériel", "Plus d'explications", "Plus de temps"])
-        citoyennete = st.radio("2. Utilité citoyenne :", ["Oui", "Non", "Je ne sais pas"])
-
-        if st.form_submit_button("💾 Enregistrer la fiche d'évaluation"):
-            if not etablissement:
-                st.error("L'établissement doit être renseigné.")
-            else:
-                prochain_id = int(st.session_state.db_apprenants["ID"].max() + 1) if not st.session_state.db_apprenants.empty else 1
-                nouvelle_reponse = {
-                    "ID": prochain_id, "Sexe": sexe, "Classe": classe, "Etablissement": etablissement,
-                    "Frequence_Ex": frequence, "Types_Ex": ", ".join(types_ex), "Comprehension_Consignes": consignes,
-                    "Outils_Dispo": outils, "Impact_Comprehension": impact,
-                    "Difficultes": ", ".join(difficultes), "Exemple_Exercice": exemple,
-                    "Attentes_Prof": ", ".join(attentes), "Utilite_Citoyenne": citoyennete
-                }
-                st.session_state.db_apprenants = pd.concat([st.session_state.db_apprenants, pd.DataFrame([nouvelle_reponse])], ignore_index=True)
-                st.success("Fiche indexée avec succès.")
-
-# --------------------------------------------------
-# 2. INTERFACE ANALYSE & CRITIQUE EXECUTIVE
-# --------------------------------------------------
-else:
-    st.title("Analytique")
-    df_app = st.session_state.db_apprenants
-
-    if df_app.empty:
-        st.info("💡 La base de données est actuellement vierge. Utilisez le Formulaire Questionnaire pour collecter vos premières fiches apprenants.")
+# ==========================================
+# 2. OPTION FUSIONNÉE : DASHBOARD & EXPORT PDF COMPLET
+# ==========================================
+elif menu == "📊 Dashboard & Recommandations IA":
+    st.title("📊 Laboratoire Empirique : Tableau de Bord & Recommandations IA")
+    st.caption("Espace unifié combinant l'analyse statistique, la critique interprétative et l'option d'exportation pour le mémoire.")
+    st.write("---")
+    
+    df = charger_donnees()
+    
+    if df.empty:
+        st.warning("⚠️ Aucune donnée disponible. Veuillez enregistrer une fiche d'évaluation pour activer les analyses.")
     else:
-        st.write("### ⚙️ Gestion et Modération des réponses")
+        # Calculs Universitaires Globaux
+        total_fiches = len(df)
+        sans_outils_pct = (df["Outils"] == "Non").sum() / total_fiches * 100
+        mauvaise_comp_pct = (df["Comprehension"] == "Non pas vraiment").sum() / total_fiches * 100
+        toujours_frequence_pct = (df["Frequence_Ex"] == "Toujours").sum() / total_fiches * 100
         
-        # Bouton Global pour TOUT vider d'un coup de manière transparente
-        if st.button("🗑️ Vider l'intégralité de l'application (Démarrage à blanc)"):
-            st.session_state.db_apprenants = pd.DataFrame(columns=df_app.columns)
-            st.session_state.id_a_modifier = None
-            st.success("Toutes les données ont été effacées définitivement.")
-            st.rerun()
-            
-        st.markdown("---")
-
-        # Liste des fiches disponibles basée de façon stricte sur l'état dynamique actuel
-        liste_options = [f"ID: {row['ID']} - Genre: {row['Sexe']} ({row['Classe']} - {row['Etablissement']})" for _, row in df_app.iterrows()]
+        # --- BLOC DE TÉLÉCHARGEMENT PDF VALIDE ---
+        st.subheader("📥 Génération du Rapport Officiel de Mémoire")
         
-        # Sélection
-        choix_apprenant = st.selectbox("Sélectionner une fiche élève à éditer ou supprimer :", liste_options, key="select_apprenant_key")
-        
-        if choix_apprenant:
-            id_selectionne = int(choix_apprenant.split(" - ")[0].replace("ID: ", ""))
-            ligne_apprenant = df_app[df_app["ID"] == id_selectionne].iloc[0]
-
-            col_btn1, col_btn2, _ = st.columns([1, 1, 4])
-            
-            with col_btn1:
-                if st.button("📝 Éditer les variables", key=f"edit_{id_selectionne}"):
-                    st.session_state.id_a_modifier = id_selectionne
-            
-            with col_btn2:
-                # La suppression force l'actualisation immédiate pour faire disparaître l'élément du selectbox
-                if st.button("❌ Supprimer définitivement cette fiche", key=f"del_{id_selectionne}"):
-                    st.session_state.db_apprenants = df_app[df_app["ID"] != id_selectionne].reset_index(drop=True)
-                    if st.session_state.id_a_modifier == id_selectionne:
-                        st.session_state.id_a_modifier = None
-                    st.success(f"La fiche ID {id_selectionne} a bien été effacée.")
-                    st.rerun()
-
-            if st.session_state.id_a_modifier == id_selectionne:
-                st.warning(f"Modification de la fiche ID {id_selectionne}")
-                with st.form("form_modification"):
-                    m_sexe = st.radio("Sexe :", ["Masculin", "Féminin"], index=["Masculin", "Féminin"].index(ligne_apprenant["Sexe"]))
-                    m_classe = st.selectbox("Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"], index=["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"].index(ligne_apprenant["Classe"]))
-                    m_etablissement = st.text_input("Établissement :", value=str(ligne_apprenant["Etablissement"]))
-                    
-                    opt_consignes = ["Oui, toujours", "Oui, parfois", "Non, pas vraiment"]
-                    idx_cons = opt_consignes.index(ligne_apprenant["Comprehension_Consignes"]) if ligne_apprenant["Comprehension_Consignes"] in opt_consignes else 0
-                    m_consignes = st.radio("Compréhension consignes :", opt_consignes, index=idx_cons)
-                    
-                    m_outils = st.radio("Outils disponibles :", ["Oui", "Non"], index=["Oui", "Non"].index(ligne_apprenant["Outils_Dispo"]))
-                    m_impact = st.radio("Apport sur la compréhension :", ["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"], index=["Oui, beaucoup", "Oui, un peu", "Non, pas vraiment", "Pas du tout"].index(ligne_apprenant["Impact_Comprehension"]))
-                    m_citoyennete = st.radio("Utilité citoyenne :", ["Oui", "Non", "Je ne sais pas"], index=["Oui", "Non", "Je ne sais pas"].index(ligne_apprenant["Utilite_Citoyenne"]))
-                    
-                    btn_maj1, btn_maj2 = st.columns(2)
-                    with btn_maj1:
-                        if st.form_submit_button("✅ Valider les modifications"):
-                            idx = st.session_state.db_apprenants[st.session_state.db_apprenants["ID"] == id_selectionne].index[0]
-                            st.session_state.db_apprenants.at[idx, "Sexe"] = m_sexe
-                            st.session_state.db_apprenants.at[idx, "Classe"] = m_classe
-                            st.session_state.db_apprenants.at[idx, "Etablissement"] = m_etablissement
-                            st.session_state.db_apprenants.at[idx, "Comprehension_Consignes"] = m_consignes
-                            st.session_state.db_apprenants.at[idx, "Outils_Dispo"] = m_outils
-                            st.session_state.db_apprenants.at[idx, "Impact_Comprehension"] = m_impact
-                            st.session_state.db_apprenants.at[idx, "Utilite_Citoyenne"] = m_citoyennete
-                            
-                            st.session_state.id_a_modifier = None
-                            st.success("Données mises à jour avec succès.")
-                            st.rerun()
-                    with btn_maj2:
-                        if st.form_submit_button(" Annuler"):
-                            st.session_state.id_a_modifier = None
-                            st.rerun()
-
-        st.markdown("---")
-        st.subheader("📥 Téléchargement du Rapport Global")
         try:
-            pdf_output = generer_pdf_statistique(st.session_state.db_apprenants)
+            pdf_data = generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct, toujours_frequence_pct)
             st.download_button(
-                label="📄 Télécharger le Rapport Analytique (PDF)",
-                data=bytes(pdf_output),
-                file_name="Rapport_Analytique.pdf",
+                label="📄 Télécharger le Rapport d'Analyse Exhaustif (PDF)",
+                data=pdf_data,
+                file_name="Rapport_Academique_Histoire_Geo_Apprenants.pdf",
                 mime="application/pdf"
             )
         except Exception as e:
-            st.error(f"Erreur d'assemblage PDF : {e}")
+            st.error(f"Erreur lors de la génération du PDF : {e}")
+            
+        st.write("---")
+        
+        # --- BLOC VISUALISATION, INTERPRÉTATION ET CRITIQUE ACADÉMIQUE ---
+        st.subheader("🔬 Analyse Graphique Descriptive et Discussion Critique")
+        
+        col_gauche, col_droite = st.columns(2)
+        
+        with col_gauche:
+            st.markdown("#### Figure 1 : Répartition des apprenants selon la possession des outils nécessaires")
+            fig1 = px.pie(df, names="Outils", color="Outils", color_discrete_map={"Oui": "#3182CE", "Non": "#E53E3E"}, hole=0.3)
+            st.plotly_chart(fig1, use_container_width=True)
+            
+            st.markdown(f"""
+            <div style="background-color:#F7FAFC; padding:15px; border-left:4px solid #3182CE; margin-bottom:20px; line-height:1.25;">
+                <b style="color:#2B6CB0;">📊 INTERPRÉTATION :</b> L'analyse descriptive indique que <b>{sans_outils_pct:.1f}%</b> des apprenants déclarent évoluer sans les outils nécessaires pour bien participer.<br><br>
+                <b style="color:#2B6CB0;">🧠 CRITIQUE ACADÉMIQUE :</b> Ce déficit matériel structurel induit un biais important dans l'acquisition des compétences de terrain. En sciences de l'éducation, enseigner l'Histoire-Géographie sans atlas ni cartes limite l'ancrage visuel et spatial.
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col_droite:
+            st.markdown("#### Figure 2 : Fréquence du sentiment d'incompréhension face aux consignes données")
+            couleurs_ardoise = {"Oui toujours": "#A0AEC0", "Oui parfois": "#718096", "Non pas vraiment": "#4A5568"}
+            fig2 = px.histogram(df, x="Comprehension", color="Comprehension", color_discrete_map=couleurs_ardoise)
+            st.plotly_chart(fig2, use_container_width=True)
+            
+            st.markdown(f"""
+            <div style="background-color:#F7FAFC; padding:15px; border-left:4px solid #4A5568; margin-bottom:20px; line-height:1.25;">
+                <b style="color:#4A5568;">📊 INTERPRÉTATION :</b> Les résultats statistiques mettent en évidence que <b>{mauvaise_comp_pct:.1f}%</b> de l'échantillon exprime une incompréhension claire des énoncés.<br><br>
+                <b style="color:#4A5568;">🧠 CRITIQUE ACADÉMIQUE :</b> Cette donnée révèle une faille dans la formulation de la consigne pédagogique. L'activité pratique perd son efficacité cognitive si les prérequis de vocabulaire ne sont pas assurés par l'enseignant.
+            </div>
+            """, unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.write("---")
         
-        axe_vue = st.selectbox("Sélectionner l'axe didactique à inspecter :", 
-                               ["Comprehension_Consignes", "Outils_Dispo", "Impact_Comprehension", "Utilite_Citoyenne"])
+        # --- SOLUTIONS PROPOSÉES POUR LES ENSEIGNANTS ET APPRENANTS ---
+        st.subheader("💡 Solutions Pratiques IA pour Valoriser l'Enseignement")
         
-        df_stats = df_app[axe_vue].value_counts().reset_index()
-        df_stats.columns = ["Modalité / Réponse Élève", "Effectif (Nbr)"]
-        df_stats["Pourcentage (%)"] = (df_stats["Effectif (Nbr)"] / len(df_app)) * 100
-        
-        st.write("#### 📋 Répartition Documentaire")
-        st.dataframe(df_stats.style.format({'Pourcentage (%)': '{:.1f} %'}), use_container_width=True)
-        
-        synthese_web = generer_synthese_axe(axe_vue, df_app)
-        st.markdown(f"""
-        <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 5px solid #2e7d32; margin-top: 15px; margin-bottom: 25px;">
-            <p><b>📝 CRITIQUE & DIAGNOSTIC :</b><br>{synthese_web['Critique']}</p>
-            <p><b>🔍 INTERPRÉTATION EXÉCUTIVE :</b><br>{synthese_web['Interpretation']}</p>
-            <p style="color: #1b5e20;"><b>💡 PROPOSITION DE REMÉDIATION :</b><br><i>{synthese_web['Solution']}</i></p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        fig = px.pie(
-            df_stats, 
-            names="Modalité / Réponse Élève", 
-            values="Effectif (Nbr)", 
-            hole=0.3, 
-            color_discrete_sequence=['#2e7d32', '#ffb300', '#c62828', '#1565c0']
-        )
-        st.plotly_chart(fig)
+        solutions_html = """
+        <table style="width:100%; border:none; background-color:#EDF2F7; padding:20px; border-radius:10px;">
+            <tr>
+                <td style="padding:10px; vertical-align:top; width:50%;">
+                    <h5 style="color:#2C5282; margin-top:0; font-size:16px;">👨‍🏫 Recommandations pour les Enseignants</h5>
+                    <ul style="line-height:1.25;">
+                        <li><b>Régulation des consignes :</b> Reformuler systématiquement les questions complexes de lecture de cartes ou de textes.</li>
+                        <li><b>Stratégie de groupe compensatoire :</b> Organiser des ateliers mixtes mettant en commun un atlas ou un livre.</li>
+                    </ul>
+                </td>
+                <td style="padding:10px; vertical-align:top; width:50%;">
+                    <h5 style="color:#22543D; margin-top:0; font-size:16px;">🎓 Conseils pour les Apprenants</h5>
+                    <ul style="line-height:1.25;">
+                        <li><b>Développement de l'écoute active :</b> Demander immédiatement des explications complémentaires si une consigne paraît floue.</li>
+                        <li><b>Solidarité et partage :</b> Partager activement les supports de cours disponibles au sein des cercles d'études.</li>
+                    </ul>
+                </td>
+            </tr>
+        </table>
+        """
+        st.markdown(solutions_html, unsafe_allow_html=True)
