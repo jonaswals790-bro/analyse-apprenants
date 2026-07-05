@@ -3,8 +3,9 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 from fpdf import FPDF
-import io
 import os
+import uuid
+from datetime import datetime
 
 # --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(
@@ -15,33 +16,38 @@ st.set_page_config(
 
 DB_FILE = "data_collecte.csv"
 
-# --- INTERACTION GOOGLE WORKSPACE ---
-try:
-    from gemkick_corpus import create_document
-    HAS_WORKSPACE = True
-except ImportError:
-    HAS_WORKSPACE = False
+# --- FONCTIONS DE GESTION DE LA BASE DE DONNÉES ---
+def charger_donnees():
+    if os.path.isfile(DB_FILE):
+        df = pd.read_csv(DB_FILE, encoding='utf-8')
+        # S'assurer que la colonne ID existe pour les anciens enregistrements
+        if "ID" not in df.columns:
+            df.insert(0, "ID", [str(uuid.uuid4())[:8] for _ in range(len(df))])
+            df.to_csv(DB_FILE, index=False, encoding='utf-8')
+        return df
+    return pd.DataFrame()
 
-# --- FONCTION DE SAUVEGARDE DES DONNÉES ---
-def sauvegarder_donnees(dict_data):
+def sauvegarder_toutes_donnees(df):
+    df.to_csv(DB_FILE, index=False, encoding='utf-8')
+
+def sauvegarder_nouvel_apprenant(dict_data):
+    dict_data["ID"] = str(uuid.uuid4())[:8]  # Génère un identifiant court unique
+    dict_data["Date_Enregistrement"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     df_new = pd.DataFrame([dict_data])
+    
     if not os.path.isfile(DB_FILE):
         df_new.to_csv(DB_FILE, index=False, encoding='utf-8')
     else:
+        # Réorganiser les colonnes pour correspondre si le fichier existe déjà
+        df_existing = pd.read_csv(DB_FILE, encoding='utf-8')
+        df_new = df_new.reindex(columns=df_existing.columns)
         df_new.to_csv(DB_FILE, mode='a', header=False, index=False, encoding='utf-8')
-
-# --- CHARGEMENT DES DONNÉES ---
-def charger_donnees():
-    if os.path.isfile(DB_FILE):
-        return pd.read_csv(DB_FILE, encoding='utf-8')
-    return pd.DataFrame()
 
 # =========================================================
 # MOTEUR DE GÉNÉRATION DU RAPPORT PDF PROFESSIONNEL (FPDF)
 # =========================================================
 class PDFRapportMemoire(FPDF):
     def header(self):
-        # En-tête uniquement sur les pages normales (pas la garde)
         if self.page_no() > 1:
             self.set_font("Helvetica", "I", 8)
             self.set_text_color(128, 128, 128)
@@ -62,7 +68,7 @@ def generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct,
     # --- PAGE DE GARDE INSTITUTIONNELLE ---
     pdf.add_page()
     pdf.set_font("Helvetica", "B", 16)
-    pdf.set_text_color(26, 54, 93)  # Bleu nuit
+    pdf.set_text_color(26, 54, 93)
     pdf.cell(0, 20, "RAPPORT D'ANALYSE SCIENTIFIQUE ET DIAGNOSTIC PÉDAGOGIQUE", ln=True, align="C")
     
     pdf.set_font("Helvetica", "B", 12)
@@ -97,7 +103,6 @@ def generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct,
     pdf.cell(0, 10, "2. TABLEAU SYNTHETIQUE DES VARIABLES CLES DE L'APPRENTISSAGE", ln=True)
     pdf.ln(2)
     
-    # Structure de tableau FPDF
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(237, 242, 247)
     pdf.cell(100, 8, " Indicateur Pedagogique Evalue", border=1, fill=True)
@@ -185,9 +190,9 @@ def generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct,
     pdf.cell(0, 6, "Liste exhaustive des fiches traitees et comptabilisees dans l'etude :", ln=True)
     pdf.ln(4)
     
-    # Remplissage dynamique des lignes brutes enregistrées
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_fill_color(240, 240, 240)
+    pdf.cell(12, 6, "ID", border=1, fill=True)
     pdf.cell(15, 6, "Genre", border=1, fill=True)
     pdf.cell(15, 6, "Classe", border=1, fill=True)
     pdf.cell(35, 6, "Etablissement", border=1, fill=True)
@@ -195,19 +200,18 @@ def generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct,
     pdf.cell(20, 6, "Compreh.", border=1, fill=True)
     pdf.cell(15, 6, "Outils", border=1, fill=True)
     pdf.cell(30, 6, "Aide Lecon", border=1, fill=True)
-    pdf.cell(35, 6, "Utilite Civ.", border=1, fill=True)
     pdf.ln()
     
     pdf.set_font("Helvetica", "", 7.5)
     for _, row in df.iterrows():
-        # Troncature propre pour eviter les debordements de cellules FPDF
+        id_app = str(row.get('ID', ''))
         etab = str(row.get('Etablissement', ''))[:20]
         freq = str(row.get('Frequence_Ex', ''))
         comp = str(row.get('Comprehension', ''))
         out = str(row.get('Outils', ''))
         aide = str(row.get('Aide_Lecon', ''))
-        cit = str(row.get('Utilite_Citoyen', ''))
         
+        pdf.cell(12, 6, id_app, border=1)
         pdf.cell(15, 6, str(row.get('Sexe', '')), border=1)
         pdf.cell(15, 6, str(row.get('Classe', '')), border=1)
         pdf.cell(35, 6, etab, border=1)
@@ -215,10 +219,8 @@ def generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct,
         pdf.cell(20, 6, comp, border=1)
         pdf.cell(15, 6, out, border=1)
         pdf.cell(30, 6, aide, border=1)
-        pdf.cell(35, 6, cit, border=1)
         pdf.ln()
         
-    # --- AJUSTEMENT POUR COMPATIBILITÉ FPDF2 & EVITER L'ERREUR DE TYPE 'BYTEARRAY' ---
     pdf_bytes = pdf.output()
     if isinstance(pdf_bytes, (bytes, bytearray)):
         return bytes(pdf_bytes)
@@ -226,14 +228,18 @@ def generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct,
 
 # --- BARRE LATÉRALE DE NAVIGATION ---
 st.sidebar.title("🎓 EduAnalyse Mémoire Pro")
-menu = st.sidebar.radio("Navigation", ["📝 Enregistrement des Données (Fiche)", "📊 Dashboard & Recommandations IA"])
+menu = st.sidebar.radio("Navigation", [
+    "📝 Enregistrement des Données (Fiche)", 
+    "📊 Dashboard & Recommandations IA",
+    "⚙️ Gestion des Fiches (Modifier/Supprimer)"
+])
 
 # ==========================================
-# 1. OPTION : ENREGISTREMENT FIDÈLE DU TEXTE DE LA FICHE APPRENANT
+# 1. OPTION : ENREGISTREMENT D'UNE FICHE APPRENANT
 # ==========================================
 if menu == "📝 Enregistrement des Données (Fiche)":
     st.title("📋 Questionnaire Détaillé destiné aux Apprenants")
-    st.markdown("**Introduction** : Cher(e) apprenant. Ce questionnaire vise à recueillir ton avis sur les exercices pratiques réalisés pendant les cours d'Histoire-Géographie et Éducation à la Citoyenneté. Tes réponses aideront à comprendre les difficultés rencontrées et à améliorer les méthodes d'enseignement. Merci de répondre avec sincérité.")
+    st.markdown("**Introduction** : Cher(e) apprenant. Ce questionnaire vise à recueillir ton avis sur les exercices pratiques réalisés pendant les cours d'Histoire-Géographie et Éducation à la Citoyenneté.")
     st.write("---")
     
     with st.form("form_strict", clear_on_submit=True):
@@ -263,15 +269,13 @@ if menu == "📝 Enregistrement des Données (Fiche)":
         difficultes = st.multiselect("1. Quelles difficultés rencontres-tu pendant ces exercices ?",
                                      ["Pas assez de matériel", "Pas assez de temps", "Le professeur ne donne pas assez d'explications", "Difficulté à travailler en groupe", "Bruit/désordre en classe"])
         autre_diff = st.text_input("Autres :")
-        
-        exemple_ex = st.text_area("2. Donne un exemple d'exercice pratique que tu as aimé ou pas aluse, et pourquoi")
+        exemple_ex = st.text_area("2. Donne un exemple d'exercice pratique que tu as aimé ou pas aimé, et pourquoi")
         
         st.write("---")
         st.subheader("IV. Amélioration et suggestions")
-        suggestions = st.multiselect("1. Qu'aimerais-tu que ton professeur fasse pour améliorer ces exercious ?",
-                                     ["Plus de matériel", "Plus d'explications", "Plus ce temps", "Sorties pédagogiques"])
+        suggestions = st.multiselect("1. Qu'aimerais-tu que ton professeur fasse pour améliorer ces exercices ?",
+                                     ["Plus de matériel", "Plus d'explications", "Plus de temps", "Sorties pédagogiques"])
         autre_sug = st.text_input("Autre")
-        
         utilite_citoyen = st.radio("2. Selon toi, les exercices pratiques sont-ils utiles pour devenir un bon citoyen ?", ["Oui", "Non", "Je ne sais pas"])
         
         submit = st.form_submit_button("💾 Enregistrer les informations")
@@ -284,11 +288,11 @@ if menu == "📝 Enregistrement des Données (Fiche)":
                 "Difficultes": ", ".join(difficultes), "Autre_Diff": autre_diff, "Exemple_Texte": exemple_ex,
                 "Suggestions": ", ".join(suggestions), "Autre_Sug": autre_sug, "Utilite_Citoyen": utilite_citoyen
             }
-            sauvegarder_donnees(data)
-            st.success("🎉 Les informations textuelles de la fiche ont été correctement archivées.")
+            sauvegarder_nouvel_apprenant(data)
+            st.success("🎉 Les informations de la fiche ont été correctement archivées.")
 
 # ==========================================
-# 2. OPTION FUSIONNÉE : DASHBOARD & EXPORT PDF COMPLET
+# 2. OPTION : DASHBOARD & EXPORT PDF
 # ==========================================
 elif menu == "📊 Dashboard & Recommandations IA":
     st.title("📊 Laboratoire Empirique : Tableau de Bord & Recommandations IA")
@@ -300,15 +304,12 @@ elif menu == "📊 Dashboard & Recommandations IA":
     if df.empty:
         st.warning("⚠️ Aucune donnée disponible. Veuillez enregistrer une fiche d'évaluation pour activer les analyses.")
     else:
-        # Calculs Universitaires Globaux
         total_fiches = len(df)
         sans_outils_pct = (df["Outils"] == "Non").sum() / total_fiches * 100
         mauvaise_comp_pct = (df["Comprehension"] == "Non pas vraiment").sum() / total_fiches * 100
         toujours_frequence_pct = (df["Frequence_Ex"] == "Toujours").sum() / total_fiches * 100
         
-        # --- BLOC DE TÉLÉCHARGEMENT PDF VALIDE ---
         st.subheader("📥 Génération du Rapport Officiel de Mémoire")
-        
         try:
             pdf_data = generer_pdf_academique(df, total_fiches, sans_outils_pct, mauvaise_comp_pct, toujours_frequence_pct)
             st.download_button(
@@ -321,60 +322,101 @@ elif menu == "📊 Dashboard & Recommandations IA":
             st.error(f"Erreur lors de la génération du PDF : {e}")
             
         st.write("---")
-        
-        # --- BLOC VISUALISATION, INTERPRÉTATION ET CRITIQUE ACADÉMIQUE ---
         st.subheader("🔬 Analyse Graphique Descriptive et Discussion Critique")
         
         col_gauche, col_droite = st.columns(2)
-        
         with col_gauche:
-            st.markdown("#### Figure 1 : Répartition des apprenants selon la possession des outils nécessaires")
+            st.markdown("#### Figure 1 : Répartition selon la possession des outils")
             fig1 = px.pie(df, names="Outils", color="Outils", color_discrete_map={"Oui": "#3182CE", "Non": "#E53E3E"}, hole=0.3)
             st.plotly_chart(fig1, use_container_width=True)
-            
-            st.markdown(f"""
-            <div style="background-color:#F7FAFC; padding:15px; border-left:4px solid #3182CE; margin-bottom:20px; line-height:1.25;">
-                <b style="color:#2B6CB0;">📊 INTERPRÉTATION :</b> L'analyse descriptive indique que <b>{sans_outils_pct:.1f}%</b> des apprenants déclarent évoluer sans les outils nécessaires pour bien participer.<br><br>
-                <b style="color:#2B6CB0;">🧠 CRITIQUE ACADÉMIQUE :</b> Ce déficit matériel structurel induit un biais important dans l'acquisition des compétences de terrain. En sciences de l'éducation, enseigner l'Histoire-Géographie sans atlas ni cartes limite l'ancrage visuel et spatial.
-            </div>
-            """, unsafe_allow_html=True)
-            
         with col_droite:
-            st.markdown("#### Figure 2 : Fréquence du sentiment d'incompréhension face aux consignes données")
-            couleurs_ardoise = {"Oui toujours": "#A0AEC0", "Oui parfois": "#718096", "Non pas vraiment": "#4A5568"}
-            fig2 = px.histogram(df, x="Comprehension", color="Comprehension", color_discrete_map=couleurs_ardoise)
+            st.markdown("#### Figure 2 : Sentiment d'incompréhension des consignes")
+            fig2 = px.histogram(df, x="Comprehension", color="Comprehension", color_discrete_map={"Oui toujours": "#A0AEC0", "Oui parfois": "#718096", "Non pas vraiment": "#4A5568"})
             st.plotly_chart(fig2, use_container_width=True)
-            
-            st.markdown(f"""
-            <div style="background-color:#F7FAFC; padding:15px; border-left:4px solid #4A5568; margin-bottom:20px; line-height:1.25;">
-                <b style="color:#4A5568;">📊 INTERPRÉTATION :</b> Les résultats statistiques mettent en évidence que <b>{mauvaise_comp_pct:.1f}%</b> de l'échantillon exprime une incompréhension claire des énoncés.<br><br>
-                <b style="color:#4A5568;">🧠 CRITIQUE ACADÉMIQUE :</b> Cette donnée révèle une faille dans la formulation de la consigne pédagogique. L'activité pratique perd son efficacité cognitive si les prérequis de vocabulaire ne sont pas assurés par l'enseignant.
-            </div>
-            """, unsafe_allow_html=True)
 
+# ==========================================
+# 3. NOUVELLE OPTION : GESTION DES FICHES (MODIFIER / SUPPRIMER)
+# ==========================================
+elif menu == "⚙️ Gestion des Fiches (Modifier/Supprimer)":
+    st.title("⚙️ Administration et Modération des Données")
+    st.caption("Sélectionne la fiche d'un apprenant à l'aide de son identifiant unique pour appliquer des modifications ou la supprimer définitivement.")
+    st.write("---")
+    
+    df = charger_donnees()
+    
+    if df.empty:
+        st.warning("⚠️ La base de données est actuellement vide. Aucun profil apprenant disponible pour modification ou suppression.")
+    else:
+        # Affichage du tableau global pour repérer les ID
+        st.subheader("📋 Liste complète des fiches enregistrées")
+        st.dataframe(df[["ID", "Sexe", "Classe", "Etablissement", "Frequence_Ex", "Comprehension", "Outils"]])
+        
         st.write("---")
+        st.subheader("🛠️ Action sur une fiche")
         
-        # --- SOLUTIONS PROPOSÉES POUR LES ENSEIGNANTS ET APPRENANTS ---
-        st.subheader("💡 Solutions Pratiques IA pour Valoriser l'Enseignement")
+        # Sélection de l'apprenant cible par son ID
+        liste_ids = df["ID"].tolist()
+        id_selectionne = st.selectbox("Choisir l'identifiant (ID) de l'apprenant à traiter :", liste_ids)
         
-        solutions_html = """
-        <table style="width:100%; border:none; background-color:#EDF2F7; padding:20px; border-radius:10px;">
-            <tr>
-                <td style="padding:10px; vertical-align:top; width:50%;">
-                    <h5 style="color:#2C5282; margin-top:0; font-size:16px;">👨‍🏫 Recommandations pour les Enseignants</h5>
-                    <ul style="line-height:1.25;">
-                        <li><b>Régulation des consignes :</b> Reformuler systématiquement les questions complexes de lecture de cartes ou de textes.</li>
-                        <li><b>Stratégie de groupe compensatoire :</b> Organiser des ateliers mixtes mettant en commun un atlas ou un livre.</li>
-                    </ul>
-                </td>
-                <td style="padding:10px; vertical-align:top; width:50%;">
-                    <h5 style="color:#22543D; margin-top:0; font-size:16px;">🎓 Conseils pour les Apprenants</h5>
-                    <ul style="line-height:1.25;">
-                        <li><b>Développement de l'écoute active :</b> Demander immédiatement des explications complémentaires si une consigne paraît floue.</li>
-                        <li><b>Solidarité et partage :</b> Partager activement les supports de cours disponibles au sein des cercles d'études.</li>
-                    </ul>
-                </td>
-            </tr>
-        </table>
-        """
-        st.markdown(solutions_html, unsafe_allow_html=True)
+        # Récupération de la ligne correspondante
+        index_ligne = df[df["ID"] == id_selectionne].index[0]
+        row_data = df.loc[index_ligne]
+        
+        # Choix de l'action
+        action = st.radio("Action requise :", ["Modifier les informations", "Supprimer la fiche"], horizontal=True)
+        
+        if action == "Modifier les informations":
+            st.info(f"Formulaire d'édition pour la fiche ID : **{id_selectionne}**")
+            
+            # Reconstruction du formulaire pré-rempli avec les valeurs actuelles
+            with st.form("form_edition"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    nouveau_sexe = st.radio("Sexe :", ["Masculin", "Féminin"], index=["Masculin", "Féminin"].index(row_data["Sexe"]))
+                    nouveau_classe = st.radio("Classe :", ["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"], index=["6e", "5e", "4e", "3e", "2nde", "1ère", "Tle"].index(row_data["Classe"]))
+                with col2:
+                    nouveau_etab = st.text_input("Établissement :", value=row_data["Etablissement"])
+                
+                st.write("---")
+                nouveau_freq = st.radio("Fréquence exercices :", ["Toujours", "Souvent", "Parfois", "Rarement", "Jamais"], index=["Toujours", "Souvent", "Parfois", "Rarement", "Jamais"].index(row_data["Frequence_Ex"]))
+                nouveau_comp = st.radio("Compréhension des consignes :", ["Oui toujours", "Oui parfois", "Non pas vraiment"], index=["Oui toujours", "Oui parfois", "Non pas vraiment"].index(row_data["Comprehension"]))
+                nouveau_outils = st.radio("Outils nécessaires disponibles :", ["Oui", "Non"], index=["Oui", "Non"].index(row_data["Outils"]))
+                nouveau_aide = st.radio("Aide apportée par la leçon :", ["Oui beaucoup", "Oui un peu", "Non vraiment", "Pas du tout"], index=["Oui beaucoup", "Oui un peu", "Non vraiment", "Pas du tout"].index(row_data["Aide_Lecon"]))
+                
+                nouveau_exemple = st.text_area("Exemple d'exercice aimé/pas aimé :", value=str(row_data["Exemple_Texte"]))
+                nouveau_citoyen = st.radio("Utilité citoyenne :", ["Oui", "Non", "Je ne sais pas"], index=["Oui", "Non", "Je ne sais pas"].index(row_data["Utilite_Citoyen"]))
+                
+                bouton_maj = st.form_submit_button("🔄 Appliquer et mettre à jour la fiche")
+                
+                if bouton_maj:
+                    # Application des modifications directes dans le DataFrame
+                    df.loc[index_ligne, "Sexe"] = nouveau_sexe
+                    df.loc[index_ligne, "Classe"] = nouveau_classe
+                    df.loc[index_ligne, "Etablissement"] = nouveau_etab.upper()
+                    df.loc[index_ligne, "Frequence_Ex"] = nouveau_freq
+                    df.loc[index_ligne, "Comprehension"] = nouveau_comp
+                    df.loc[index_ligne, "Outils"] = nouveau_outils
+                    df.loc[index_ligne, "Aide_Lecon"] = nouveau_aide
+                    df.loc[index_ligne, "Exemple_Texte"] = nouveau_exemple
+                    df.loc[index_ligne, "Utilite_Citoyen"] = nouveau_citoyen
+                    
+                    sauvegarder_toutes_donnees(df)
+                    st.success(f"✅ Les modifications appliquées sur la fiche apprenant **{id_selectionne}** ont été sauvegardées avec succès. Rechargez la page si nécessaire.")
+                    st.rerun()
+
+        elif action == "Supprimer la fiche":
+            st.warning(f"⚠️ Attention : La suppression de la fiche apprenant **{id_selectionne}** est irréversible.")
+            
+            # Double validation par case à cocher de sécurité
+            confirmation = st.checkbox("Je confirme vouloir supprimer définitivement cette ligne de données.")
+            bouton_supprimer = st.button("❌ Supprimer définitivement")
+            
+            if bouton_supprimer:
+                if confirmation:
+                    # Suppression de la ligne ciblée par son ID
+                    df = df[df["ID"] != id_selectionne]
+                    sauvegarder_toutes_donnees(df)
+                    st.success(f"🗑️ La fiche apprenant **{id_selectionne}** a été retirée définitivement de la base de données CSV.")
+                    st.rerun()
+                else:
+                    st.error("Veuillez cocher la case de confirmation avant de cliquer sur le bouton de suppression.")
